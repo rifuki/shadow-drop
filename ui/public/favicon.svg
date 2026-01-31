@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a855f7"/>
+      <stop offset="100%" style="stop-color:#ec4899"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="45" fill="url(#grad)"/>
+  <!-- Shadow drop icon - stylized S with drop -->
+  <path d="M35 35 Q35 25, 50 25 Q65 25, 65 35 Q65 45, 50 50 Q35 55, 35 65 Q35 75, 50 75 Q65 75, 65 65" 
+        fill="none" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  <!-- Drop accent -->
+  <circle cx="65" cy="70" r="6" fill="white"/>
+</svg>

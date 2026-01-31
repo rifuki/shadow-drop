@@ -1,0 +1,7 @@
+[package]
+name = "shadow-drop-circuits"
+type = "bin"
+authors = ["Shadow Drop Team"]
+compiler_version = ">=1.0.0-beta.0"
+
+[dependencies]
