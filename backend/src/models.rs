@@ -26,6 +26,11 @@ pub struct Campaign {
     pub vault_address: Option<String>, // PDA vault address for claims
     pub created_at: DateTime<Utc>,
     pub recipients: Vec<Recipient>,
+    // Vesting fields
+    pub airdrop_type: String, // "instant" or "vested"
+    pub vesting_start: i64,   // Unix timestamp
+    pub vesting_cliff_seconds: i64,
+    pub vesting_duration_seconds: i64,
 }
 
 /// Response for campaign info (without recipient list for privacy)
@@ -66,6 +71,18 @@ pub struct EligibilityResponse {
     pub eligible: bool,
     pub amount: Option<f64>,
     pub already_claimed: bool,
+}
+
+/// Eligible campaign info for a wallet
+#[derive(Debug, Serialize)]
+pub struct EligibleCampaign {
+    pub address: String,
+    pub name: String,
+    pub amount: f64,
+    pub total_amount: f64,
+    pub total_recipients: usize,
+    pub vault_address: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 /// In-memory campaign store (can be replaced with database later)
@@ -138,5 +155,27 @@ impl CampaignStore {
             }
         }
         false
+    }
+
+    /// Get all campaigns where the wallet is eligible to claim
+    pub async fn get_eligible_for_wallet(&self, wallet: &str) -> Vec<EligibleCampaign> {
+        let campaigns = self.campaigns.read().await;
+        campaigns
+            .values()
+            .filter_map(|campaign| {
+                // Find the recipient entry for this wallet
+                campaign.recipients.iter()
+                    .find(|r| r.wallet == wallet && !r.claimed)
+                    .map(|recipient| EligibleCampaign {
+                        address: campaign.address.clone(),
+                        name: campaign.name.clone(),
+                        amount: recipient.amount,
+                        total_amount: campaign.total_amount,
+                        total_recipients: campaign.recipients.len(),
+                        vault_address: campaign.vault_address.clone(),
+                        created_at: campaign.created_at,
+                    })
+            })
+            .collect()
     }
 }

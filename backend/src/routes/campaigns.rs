@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::{
     common::response::{ApiErrorResponse, ApiResponse, ApiSuccessResponse},
-    models::{Campaign, CampaignInfo, EligibilityResponse, Recipient},
+    models::{Campaign, CampaignInfo, EligibilityResponse, EligibleCampaign, Recipient},
     state::AppState,
 };
 
@@ -24,6 +24,15 @@ pub struct CreateCampaignRequest {
     pub tx_signature: Option<String>,
     pub vault_address: Option<String>, // PDA vault address for claims
     pub recipients: Vec<RecipientInput>,
+    // Vesting fields (optional, defaults to instant)
+    #[serde(default)]
+    pub airdrop_type: Option<String>,
+    #[serde(default)]
+    pub vesting_start: Option<i64>,
+    #[serde(default)]
+    pub vesting_cliff_seconds: Option<i64>,
+    #[serde(default)]
+    pub vesting_duration_seconds: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +57,7 @@ pub struct MarkClaimedRequest {
 pub fn campaign_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_campaign))
+        .route("/eligible/{wallet}", get(get_eligible_campaigns))
         .route("/{address}", get(get_campaign))
         .route("/{address}/check", post(check_eligibility))
         .route("/{address}/claim", post(mark_claimed))
@@ -59,6 +69,7 @@ async fn create_campaign(
     State(state): State<AppState>,
     Json(body): Json<CreateCampaignRequest>,
 ) -> ApiResponse<CampaignInfo> {
+    let now = Utc::now().timestamp();
     let campaign = Campaign {
         id: uuid_simple(),
         address: body.address,
@@ -79,6 +90,11 @@ async fn create_campaign(
                 claimed_at: None,
             })
             .collect(),
+        // Vesting fields with defaults
+        airdrop_type: body.airdrop_type.unwrap_or_else(|| "instant".to_string()),
+        vesting_start: body.vesting_start.unwrap_or(now),
+        vesting_cliff_seconds: body.vesting_cliff_seconds.unwrap_or(0),
+        vesting_duration_seconds: body.vesting_duration_seconds.unwrap_or(0),
     };
 
     let created = state.campaign_store.create(campaign).await;
@@ -135,6 +151,18 @@ async fn mark_claimed(
             .with_code(StatusCode::BAD_REQUEST)
             .with_message("Claim failed - already claimed or not eligible"))
     }
+}
+
+/// GET /api/v1/campaigns/eligible/:wallet - Get campaigns where wallet is eligible
+async fn get_eligible_campaigns(
+    State(state): State<AppState>,
+    Path(wallet): Path<String>,
+) -> ApiResponse<Vec<EligibleCampaign>> {
+    let campaigns = state.campaign_store.get_eligible_for_wallet(&wallet).await;
+
+    Ok(ApiSuccessResponse::default()
+        .with_data(campaigns)
+        .with_message("Eligible campaigns retrieved"))
 }
 
 /// GET /api/v1/campaigns/wallet/:wallet - Get campaigns by creator wallet

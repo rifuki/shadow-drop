@@ -14,6 +14,11 @@ export interface CreateCampaignRequest {
     tx_signature?: string;
     vault_address?: string; // PDA vault address for claims
     recipients: RecipientInput[];
+    // Vesting fields (optional)
+    airdrop_type?: string;
+    vesting_start?: number;
+    vesting_cliff_seconds?: number;
+    vesting_duration_seconds?: number;
 }
 
 export interface CampaignInfo {
@@ -27,6 +32,11 @@ export interface CampaignInfo {
     vault_address?: string; // PDA vault address for claims
     tx_signature?: string;
     created_at: string;
+    // Vesting fields
+    airdrop_type?: string;
+    vesting_start?: number;
+    vesting_cliff_seconds?: number;
+    vesting_duration_seconds?: number;
 }
 
 export interface EligibilityResponse {
@@ -42,6 +52,16 @@ export interface ProofResponse {
     merkle_path: string[];
     amount: number;
     secret: string;
+}
+
+export interface EligibleCampaign {
+    address: string;
+    name: string;
+    amount: number;
+    total_amount: number;
+    total_recipients: number;
+    vault_address?: string;
+    created_at: string;
 }
 
 interface ApiResponse<T> {
@@ -134,6 +154,18 @@ export async function generateProof(address: string, wallet: string): Promise<Pr
     const result: ApiResponse<ProofResponse> = await response.json();
     if (!result.success || !result.data) {
         throw new Error(result.message || 'Failed to generate proof');
+    }
+    return result.data;
+}
+
+/**
+ * Get all campaigns where wallet is eligible to claim
+ */
+export async function getEligibleCampaigns(wallet: string): Promise<EligibleCampaign[]> {
+    const response = await fetch(`${API_BASE}/api/v1/campaigns/eligible/${wallet}`);
+    const result: ApiResponse<EligibleCampaign[]> = await response.json();
+    if (!result.success || !result.data) {
+        return [];
     }
     return result.data;
 }

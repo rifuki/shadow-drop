@@ -1,6 +1,6 @@
 [package]
 name = "shadow-drop-contracts"
-version = "0.0.1"
+version = "0.0.2"
 description = "Created with Anchor"
 edition = "2021"
 
@@ -19,7 +19,7 @@ idl-build = ["anchor-lang/idl-build", "light-sdk/idl-build"]
 
 [dependencies]
 anchor-lang = "0.31.1"
-light-sdk = { version = "0.19.0", features = ["anchor"] }
+light-sdk = { version = "0.19.0", features = ["anchor", "anchor-discriminator", "cpi-context"] }
 light-sdk-types = { version = "0.19.0" }
 
 [target.'cfg(not(target_os = "solana"))'.dependencies]

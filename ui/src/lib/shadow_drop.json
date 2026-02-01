@@ -2,20 +2,21 @@
   "address": "7wjDqUQUpnudD25MELXBiayNiMrStXaKAdrLMwzccu7v",
   "metadata": {
     "name": "shadow_drop",
-    "version": "0.1.0",
+    "version": "0.0.1",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
   "docs": [
-    "Shadow Drop - Production-Ready Airdrop Campaign",
-    "Uses PDAs to store campaign funds securely on-chain"
+    "Shadow Drop - ZK Compression Airdrop",
+    "Uses Light Protocol compressed accounts for cheap claims"
   ],
   "instructions": [
     {
       "name": "claim",
       "docs": [
-        "Claim tokens from campaign",
-        "Backend verifies merkle proof, then calls this instruction"
+        "Legacy claim (for backwards compatibility)",
+        "Uses regular PDA claim records",
+        "Supports vesting: calculates claimable amount based on time"
       ],
       "discriminator": [
         62,
@@ -73,6 +74,77 @@
         }
       ],
       "args": [
+        {
+          "name": "claim_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_compressed",
+      "docs": [
+        "Claim tokens using compressed account (cheap!)",
+        "Creates a compressed nullifier to prevent double-claiming"
+      ],
+      "discriminator": [
+        174,
+        61,
+        174,
+        123,
+        70,
+        253,
+        146,
+        118
+      ],
+      "accounts": [
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "ValidityProof"
+            }
+          }
+        },
+        {
+          "name": "address_tree_info",
+          "type": {
+            "defined": {
+              "name": "PackedAddressTreeInfo"
+            }
+          }
+        },
+        {
+          "name": "output_state_tree_index",
+          "type": "u8"
+        },
+        {
+          "name": "nullifier",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
         {
           "name": "claim_amount",
           "type": "u64"
@@ -210,6 +282,18 @@
         {
           "name": "total_amount",
           "type": "u64"
+        },
+        {
+          "name": "vesting_start",
+          "type": "i64"
+        },
+        {
+          "name": "vesting_cliff",
+          "type": "i64"
+        },
+        {
+          "name": "vesting_duration",
+          "type": "i64"
         }
       ]
     }
@@ -239,6 +323,21 @@
         62,
         96,
         7
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CompressedNullifier",
+      "discriminator": [
+        31,
+        196,
+        200,
+        240,
+        56,
+        213,
+        239,
+        139
       ]
     }
   ],
@@ -272,6 +371,16 @@
       "code": 6005,
       "name": "Unauthorized",
       "msg": "Unauthorized"
+    },
+    {
+      "code": 6006,
+      "name": "VestingCliffNotReached",
+      "msg": "Vesting cliff period not reached"
+    },
+    {
+      "code": 6007,
+      "name": "NothingToVest",
+      "msg": "Nothing to vest yet"
     }
   ],
   "types": [
@@ -316,6 +425,31 @@
           {
             "name": "vault_bump",
             "type": "u8"
+          },
+          {
+            "name": "campaign_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "campaign_id_len",
+            "type": "u8"
+          },
+          {
+            "name": "vesting_start",
+            "type": "i64"
+          },
+          {
+            "name": "vesting_cliff",
+            "type": "i64"
+          },
+          {
+            "name": "vesting_duration",
+            "type": "i64"
           }
         ]
       }
@@ -344,6 +478,97 @@
           {
             "name": "claimed_at",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompressedNullifier",
+      "docs": [
+        "Compressed nullifier account - prevents double-claiming",
+        "Creating this account \"uses up\" the nullifier"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "CompressedProof",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "a",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "c",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PackedAddressTreeInfo",
+      "docs": [
+        "Packed address tree info for instruction data.",
+        "Contains indices to address tree accounts and root index."
+      ],
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "address_merkle_tree_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "address_queue_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "root_index",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ValidityProof",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "option": {
+              "defined": {
+                "name": "CompressedProof"
+              }
+            }
           }
         ]
       }

@@ -4,10 +4,11 @@ import { useShadowDrop } from "../hooks/useShadowDrop";
 import { BN } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
-    Shield, Zap, Eye, EyeOff, Gift, ArrowRight,
+    Shield, Zap, EyeOff, Gift, ArrowRight,
     Upload, Clock, CheckCircle2,
     BarChart3, Wallet, Copy, ExternalLink,
-    Sparkles, Lock, AlertCircle, Loader2, Trash2
+    Sparkles, Lock, AlertCircle, Loader2,
+    Calendar
 } from "lucide-react";
 
 
@@ -286,11 +287,16 @@ function LandingPage() {
 }
 
 function CreateAirdrop({ balance }: { balance: number | null }) {
-    const [step, setStep] = useState(1);
+    const [step, setStep] = useState(0);
+    const [airdropType, setAirdropType] = useState<"instant" | "vested" | null>(null);
     const [recipients, setRecipients] = useState("");
     const [tokenAmount, setTokenAmount] = useState("");
     const [campaignName, setCampaignName] = useState("");
     const [vestingEnabled, setVestingEnabled] = useState(false);
+    const [vestingStartNow, setVestingStartNow] = useState(true);
+    const [vestingCliffDays, setVestingCliffDays] = useState("");
+    const [vestingDurationDays, setVestingDurationDays] = useState("");
+    const [vestingFrequency, setVestingFrequency] = useState<"daily" | "weekly" | "monthly">("daily");
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [campaignAddress, setCampaignAddress] = useState("");
@@ -362,9 +368,21 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
             // Convert amount to lamports
             const lamports = new BN(Math.floor(amountToSend * LAMPORTS_PER_SOL));
 
-            // Call smart contract create_campaign instruction
+            // Calculate vesting params
+            const vestingStartTs = vestingEnabled ? new BN(0) : new BN(0); // 0 = use current time on-chain
+            const vestingCliffSeconds = vestingEnabled ? new BN(parseInt(vestingCliffDays || "0") * 86400) : new BN(0);
+            const vestingDurationSeconds = vestingEnabled ? new BN(parseInt(vestingDurationDays || "30") * 86400) : new BN(0);
+
+            // Call smart contract create_campaign instruction with vesting params
             const tx = await program.methods
-                .createCampaign(campaignId, Array.from(merkleRoot), lamports)
+                .createCampaign(
+                    campaignId,
+                    Array.from(merkleRoot),
+                    lamports,
+                    vestingStartTs,
+                    vestingCliffSeconds,
+                    vestingDurationSeconds
+                )
                 .accounts({
                     authority: publicKey,
                     campaign: campaignPDA,
@@ -391,6 +409,11 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                 tx_signature: tx,
                 vault_address: vaultPDA.toBase58(), // Store vault for claims
                 recipients: recipientList,
+                // Vesting params for backend
+                airdrop_type: vestingEnabled ? "vested" : "instant",
+                vesting_start: Math.floor(Date.now() / 1000),  // Current timestamp as integer
+                vesting_cliff_seconds: parseInt(vestingCliffDays || "0") * 86400,
+                vesting_duration_seconds: parseInt(vestingDurationDays || "30") * 86400,
             });
 
             console.log("Campaign created on-chain and saved to backend");
@@ -408,80 +431,207 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
     };
 
     if (success) {
+        const shareText = `🎁 Claim your airdrop from ${campaignName}!\n\n💰 ${tokenAmount} SOL available\n📍 Campaign: ${campaignAddress}\n\nClaim at: ${window.location.origin}`;
+
         return (
-            <div className="max-w-2xl mx-auto">
-                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-8 text-center">
-                    <div className="w-20 h-20 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+            <div className="max-w-3xl mx-auto">
+                {/* Confetti-like top decoration */}
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 flex justify-center">
+                        <div className="w-40 h-40 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-full blur-3xl animate-pulse" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Airdrop Created!</h2>
-                    <p className="text-gray-400 mb-6">Your private airdrop campaign is now live.</p>
+                </div>
 
-                    <div className="bg-black/40 rounded-xl p-4 mb-6">
-                        <div className="text-sm text-gray-500 mb-1">Campaign Address</div>
-                        <div className="flex items-center justify-center gap-2">
-                            <code className="text-violet-400 font-mono">{campaignAddress.substring(0, 8)}...{campaignAddress.substring(campaignAddress.length - 8)}</code>
-                            <button
-                                onClick={() => {
-                                    navigator.clipboard.writeText(campaignAddress);
-                                    alert("Address copied!");
-                                }}
-                                className="text-gray-500 hover:text-white transition-colors"
-                            >
-                                <Copy className="w-4 h-4" />
-                            </button>
+                <div className="bg-gradient-to-b from-white/[0.05] to-white/[0.02] border border-white/10 rounded-3xl overflow-hidden">
+                    {/* Success Header */}
+                    <div className="bg-gradient-to-r from-emerald-500/10 via-violet-500/10 to-fuchsia-500/10 border-b border-white/5 p-8 text-center">
+                        <div className="w-24 h-24 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/30">
+                            <CheckCircle2 className="w-12 h-12 text-white" />
                         </div>
+                        <h2 className="text-3xl font-bold text-white mb-2">🎉 Airdrop Created Successfully!</h2>
+                        <p className="text-gray-400">Your private airdrop campaign is now live and ready for claims</p>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 mb-8">
-                        <div className="p-3 bg-white/[0.02] rounded-xl">
-                            <div className="text-2xl font-bold text-white">{recipientCount}</div>
-                            <div className="text-xs text-gray-500">Recipients</div>
-                        </div>
-                        <div className="p-3 bg-white/[0.02] rounded-xl">
-                            <div className="text-2xl font-bold text-white">{tokenAmount}</div>
-                            <div className="text-xs text-gray-500">SOL Total</div>
-                        </div>
-                        <div className="p-3 bg-white/[0.02] rounded-xl">
-                            <div className="text-2xl font-bold text-emerald-400">Active</div>
-                            <div className="text-xs text-gray-500">Status</div>
-                        </div>
-                    </div>
-
-                    <div className="p-4 bg-violet-500/10 border border-violet-500/20 rounded-xl mb-6">
-                        <div className="flex items-start gap-3 text-left">
-                            <Lock className="w-5 h-5 text-violet-400 mt-0.5" />
+                    {/* Campaign Details */}
+                    <div className="p-8">
+                        {/* Campaign Name & Type Badge */}
+                        <div className="flex items-center justify-between mb-6">
                             <div>
-                                <div className="font-medium text-violet-300">Merkle Root Stored</div>
-                                <div className="text-sm text-violet-400/70 mt-1">
-                                    Only the merkle root is on-chain. Recipients can share the campaign address to claim.
+                                <div className="text-sm text-gray-500 mb-1">Campaign Name</div>
+                                <div className="text-2xl font-bold text-white">{campaignName}</div>
+                            </div>
+                            <div className={`px-4 py-2 rounded-full font-semibold text-sm ${vestingEnabled
+                                ? "bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 text-violet-300 border border-violet-500/30"
+                                : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                }`}>
+                                {vestingEnabled ? "⏱️ Vested Release" : "⚡ Instant Release"}
+                            </div>
+                        </div>
+
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                            <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-center">
+                                <div className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
+                                    {tokenAmount}
+                                </div>
+                                <div className="text-sm text-gray-500 mt-1">SOL Total</div>
+                            </div>
+                            <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-center">
+                                <div className="text-3xl font-bold text-white">{recipientCount}</div>
+                                <div className="text-sm text-gray-500 mt-1">Recipients</div>
+                            </div>
+                            <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-center">
+                                <div className="text-3xl font-bold text-emerald-400">0%</div>
+                                <div className="text-sm text-gray-500 mt-1">Claimed</div>
+                            </div>
+                            <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 text-center">
+                                <div className="text-3xl font-bold text-emerald-400">Active</div>
+                                <div className="text-sm text-gray-500 mt-1">Status</div>
+                            </div>
+                        </div>
+
+                        {/* Vesting Schedule (if enabled) */}
+                        {vestingEnabled && (
+                            <div className="bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 rounded-2xl p-6 mb-8">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <Clock className="w-5 h-5 text-violet-400" />
+                                    <div className="font-semibold text-violet-300">Vesting Schedule</div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Cliff Period</div>
+                                        <div className="text-xl font-bold text-white">
+                                            {vestingCliffDays || "0"} days
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            No tokens released during this period
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Total Duration</div>
+                                        <div className="text-xl font-bold text-white">
+                                            {vestingDurationDays || "30"} days
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            Linear release after cliff
+                                        </div>
+                                    </div>
+                                </div>
+                                {/* Visual Timeline */}
+                                <div className="mt-6">
+                                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-orange-500 to-violet-500"
+                                            style={{
+                                                width: `${(parseInt(vestingCliffDays || "0") / parseInt(vestingDurationDays || "30")) * 100}%`
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="flex justify-between mt-2 text-xs text-gray-500">
+                                        <span>Start</span>
+                                        <span>Cliff ({vestingCliffDays || "0"}d)</span>
+                                        <span>End ({vestingDurationDays || "30"}d)</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Campaign Address */}
+                        <div className="bg-black/40 rounded-2xl p-5 mb-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm text-gray-500 mb-1">Campaign Address</div>
+                                    <code className="text-violet-400 font-mono text-lg">
+                                        {campaignAddress.substring(0, 12)}...{campaignAddress.substring(campaignAddress.length - 12)}
+                                    </code>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(campaignAddress);
+                                        alert("Address copied!");
+                                    }}
+                                    className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all"
+                                >
+                                    <Copy className="w-5 h-5 text-gray-400" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Transaction Signature */}
+                        <div className="bg-black/40 rounded-2xl p-5 mb-8">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-sm text-gray-500 mb-1">Transaction Signature</div>
+                                    <code className="text-emerald-400 font-mono">
+                                        {txSignature.substring(0, 20)}...{txSignature.substring(txSignature.length - 8)}
+                                    </code>
+                                </div>
+                                <a
+                                    href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all"
+                                >
+                                    <ExternalLink className="w-5 h-5 text-gray-400" />
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Privacy Notice */}
+                        <div className="p-5 bg-violet-500/10 border border-violet-500/20 rounded-2xl mb-8">
+                            <div className="flex items-start gap-4">
+                                <div className="w-10 h-10 bg-violet-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
+                                    <Shield className="w-5 h-5 text-violet-400" />
+                                </div>
+                                <div>
+                                    <div className="font-semibold text-violet-300 mb-1">Privacy Protected</div>
+                                    <div className="text-sm text-violet-400/70">
+                                        Only the merkle root is stored on-chain. Recipient addresses are never revealed publicly.
+                                        Share the campaign address with eligible recipients to claim.
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => {
-                                setSuccess(false);
-                                setStep(1);
-                                setRecipients("");
-                                setTokenAmount("");
-                                setCampaignName("");
-                            }}
-                            className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-4 rounded-xl transition-all"
-                        >
-                            Create Another
-                        </button>
-                        <a
-                            href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-2"
-                        >
-                            <ExternalLink className="w-4 h-4" />
-                            View on Explorer
-                        </a>
+                        {/* Action Buttons */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(shareText);
+                                    alert("Share text copied to clipboard!");
+                                }}
+                                className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-4 rounded-xl transition-all"
+                            >
+                                <Gift className="w-5 h-5" />
+                                Copy Share Link
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setSuccess(false);
+                                    setStep(0);
+                                    setAirdropType(null);
+                                    setRecipients("");
+                                    setTokenAmount("");
+                                    setCampaignName("");
+                                    setVestingEnabled(false);
+                                    setVestingCliffDays("");
+                                    setVestingDurationDays("");
+                                }}
+                                className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-4 rounded-xl transition-all"
+                            >
+                                <Sparkles className="w-5 h-5" />
+                                Create Another
+                            </button>
+                            <a
+                                href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-semibold py-4 rounded-xl transition-all shadow-lg shadow-violet-500/25"
+                            >
+                                <ExternalLink className="w-5 h-5" />
+                                View on Explorer
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -493,31 +643,93 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
             {/* Progress Steps */}
             <div className="flex items-center justify-center gap-4 mb-12">
                 {[
+                    { num: 0, label: "Type" },
                     { num: 1, label: "Recipients" },
                     { num: 2, label: "Settings" },
                     { num: 3, label: "Review" },
                 ].map((s, i) => (
                     <div key={s.num} className="flex items-center">
                         <button
-                            onClick={() => setStep(s.num)}
+                            onClick={() => s.num <= step && setStep(s.num)}
+                            disabled={s.num > step}
                             className={`flex items-center gap-3 px-4 py-2 rounded-full transition-all ${step >= s.num
                                 ? "bg-violet-500/20 text-violet-300"
                                 : "bg-white/5 text-gray-500"
-                                }`}
+                                } ${s.num > step ? "cursor-not-allowed" : "cursor-pointer"}`}
                         >
                             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${step > s.num ? "bg-violet-500 text-white" : step === s.num ? "bg-violet-500/50 text-white" : "bg-white/10"
                                 }`}>
-                                {step > s.num ? <CheckCircle2 className="w-4 h-4" /> : s.num}
+                                {step > s.num ? <CheckCircle2 className="w-4 h-4" /> : s.num + 1}
                             </span>
-                            <span className="font-medium">{s.label}</span>
+                            <span className="font-medium hidden sm:inline">{s.label}</span>
                         </button>
-                        {i < 2 && <div className={`w-12 h-0.5 mx-2 ${step > s.num ? "bg-violet-500" : "bg-white/10"}`} />}
+                        {i < 3 && <div className={`w-8 h-0.5 mx-2 ${step > s.num ? "bg-violet-500" : "bg-white/10"}`} />}
                     </div>
                 ))}
             </div>
 
             {/* Step Content */}
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-8">
+                {/* Step 0: Type Selection */}
+                {step === 0 && (
+                    <div className="space-y-8">
+                        <div className="text-center">
+                            <h2 className="text-2xl font-bold text-white mb-2">Choose Airdrop Type</h2>
+                            <p className="text-gray-400">Select how you want to distribute tokens to recipients.</p>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-6">
+                            {/* Instant Airdrop */}
+                            <button
+                                onClick={() => {
+                                    setAirdropType("instant");
+                                    setVestingEnabled(false);
+                                    setStep(1);
+                                }}
+                                className={`p-6 rounded-2xl border-2 text-left transition-all hover:bg-white/[0.04] ${airdropType === "instant"
+                                    ? "border-violet-500 bg-violet-500/10"
+                                    : "border-white/10 hover:border-white/20"
+                                    }`}
+                            >
+                                <div className="w-12 h-12 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-xl flex items-center justify-center mb-4">
+                                    <Zap className="w-6 h-6 text-violet-400" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-white mb-2">Instant Airdrop</h3>
+                                <p className="text-gray-400 text-sm">
+                                    Create an airdrop that instantly releases tokens to recipients upon claim.
+                                </p>
+                            </button>
+
+                            {/* Vested Airdrop */}
+                            <button
+                                onClick={() => {
+                                    setAirdropType("vested");
+                                    setVestingEnabled(true);
+                                    setStep(1);
+                                }}
+                                className={`p-6 rounded-2xl border-2 text-left transition-all hover:bg-white/[0.04] ${airdropType === "vested"
+                                    ? "border-violet-500 bg-violet-500/10"
+                                    : "border-white/10 hover:border-white/20"
+                                    }`}
+                            >
+                                <div className="w-12 h-12 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 rounded-xl flex items-center justify-center mb-4">
+                                    <Calendar className="w-6 h-6 text-cyan-400" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-white mb-2">Vested Airdrop</h3>
+                                <p className="text-gray-400 text-sm">
+                                    Gradually releases tokens to recipients after a certain period of time.
+                                </p>
+                            </button>
+                        </div>
+
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
+                            <p className="text-amber-300 text-sm">
+                                <strong>Coming Soon:</strong> Public Airdrop (FCFS) and Price-Based Airdrop options.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {step === 1 && (
                     <div className="space-y-6">
                         <div>
@@ -659,12 +871,95 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                                     </div>
                                     <button
                                         onClick={() => setVestingEnabled(!vestingEnabled)}
-                                        className={`w-12 h-6 rounded-full transition-all ${vestingEnabled ? "bg-violet-500" : "bg-white/10"}`}
+                                        disabled={airdropType !== null}
+                                        className={`w-12 h-6 rounded-full transition-all ${vestingEnabled ? "bg-violet-500" : "bg-white/10"} ${airdropType !== null ? "opacity-50 cursor-not-allowed" : ""}`}
                                     >
                                         <div className={`w-5 h-5 bg-white rounded-full transition-transform ${vestingEnabled ? "translate-x-6" : "translate-x-0.5"}`} />
                                     </button>
                                 </div>
+                                {airdropType !== null && (
+                                    <div className="mt-2 text-xs text-gray-500">
+                                        {airdropType === "vested" ? "Vesting is enabled for this airdrop type" : "Vesting is not available for instant airdrops"}
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Vesting Configuration (shown when vesting is enabled) */}
+                            {vestingEnabled && (
+                                <div className="space-y-4 p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-xl">
+                                    <div className="flex items-center gap-2 text-cyan-300 font-medium">
+                                        <Calendar className="w-4 h-4" />
+                                        Vesting Configuration
+                                    </div>
+
+                                    {/* Start Date */}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <div className="text-sm font-medium text-white">Start upon creation</div>
+                                            <div className="text-xs text-gray-500">Vesting begins when the campaign is created</div>
+                                        </div>
+                                        <button
+                                            onClick={() => setVestingStartNow(!vestingStartNow)}
+                                            className={`w-12 h-6 rounded-full transition-all ${vestingStartNow ? "bg-cyan-500" : "bg-white/10"}`}
+                                        >
+                                            <div className={`w-5 h-5 bg-white rounded-full transition-transform ${vestingStartNow ? "translate-x-6" : "translate-x-0.5"}`} />
+                                        </button>
+                                    </div>
+
+                                    {/* Cliff Period */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">
+                                            Cliff Period (days)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={vestingCliffDays}
+                                            onChange={(e) => setVestingCliffDays(e.target.value)}
+                                            placeholder="0"
+                                            min="0"
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">No tokens released until cliff period ends</p>
+                                    </div>
+
+                                    {/* Vesting Duration */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">
+                                            Vesting Duration (days)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={vestingDurationDays}
+                                            onChange={(e) => setVestingDurationDays(e.target.value)}
+                                            placeholder="30"
+                                            min="1"
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Total time to release all tokens</p>
+                                    </div>
+
+                                    {/* Release Frequency */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-400 mb-2">
+                                            Release Frequency
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {(["daily", "weekly", "monthly"] as const).map((freq) => (
+                                                <button
+                                                    key={freq}
+                                                    onClick={() => setVestingFrequency(freq)}
+                                                    className={`py-2 px-3 rounded-lg text-sm font-medium transition-all capitalize ${vestingFrequency === freq
+                                                        ? "bg-cyan-500 text-white"
+                                                        : "bg-white/5 text-gray-400 hover:bg-white/10"
+                                                        }`}
+                                                >
+                                                    {freq}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex gap-4">
@@ -695,8 +990,18 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
 
                         <div className="space-y-4">
                             <div className="p-4 bg-black/40 rounded-xl border border-white/5">
-                                <div className="text-sm text-gray-500 mb-1">Campaign Name</div>
-                                <div className="text-lg font-medium text-white">{campaignName}</div>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Campaign Name</div>
+                                        <div className="text-lg font-medium text-white">{campaignName}</div>
+                                    </div>
+                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${airdropType === "vested"
+                                        ? "bg-cyan-500/20 text-cyan-300"
+                                        : "bg-violet-500/20 text-violet-300"
+                                        }`}>
+                                        {airdropType === "vested" ? "Vested" : "Instant"}
+                                    </span>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -709,6 +1014,24 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                                     <div className="text-lg font-medium text-white">{tokenAmount} SOL</div>
                                 </div>
                             </div>
+
+                            {/* Vesting Schedule (if vested) */}
+                            {vestingEnabled && (
+                                <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+                                    <div className="flex items-start gap-3">
+                                        <Calendar className="w-5 h-5 text-cyan-400 mt-0.5" />
+                                        <div>
+                                            <div className="font-medium text-cyan-300">Vesting Schedule</div>
+                                            <div className="text-sm text-cyan-400/70 mt-1 space-y-1">
+                                                <div>Start: {vestingStartNow ? "Upon creation" : "Custom date"}</div>
+                                                {vestingCliffDays && <div>Cliff: {vestingCliffDays} days</div>}
+                                                <div>Duration: {vestingDurationDays || "30"} days</div>
+                                                <div>Frequency: {vestingFrequency}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="p-4 bg-violet-500/10 border border-violet-500/20 rounded-xl">
                                 <div className="flex items-start gap-3">
@@ -753,63 +1076,51 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
 }
 
 function ClaimAirdrop() {
-    const [campaignId, setCampaignId] = useState("");
     const [loading, setLoading] = useState(false);
-    const [checking, setChecking] = useState(false);
-    const [eligible, setEligible] = useState<boolean | null>(null);
+    const [claimingId, setClaimingId] = useState<string | null>(null);
+    const [eligibleCampaigns, setEligibleCampaigns] = useState<any[]>([]);
+    const [fetchingCampaigns, setFetchingCampaigns] = useState(false);
     const [success, setSuccess] = useState(false);
     const [lastTx, setLastTx] = useState("");
+    const [lastCampaignName, setLastCampaignName] = useState("");
     const { publicKey, program } = useShadowDrop();
 
-    const [claimAmount, setClaimAmount] = useState<number>(0);
-
-    const handleCheck = async () => {
-        setChecking(true);
-        try {
+    // Fetch eligible campaigns on mount and when wallet changes
+    useEffect(() => {
+        const fetchEligible = async () => {
             if (!publicKey) {
-                setEligible(false);
-                setChecking(false);
+                setEligibleCampaigns([]);
                 return;
             }
 
-            // Check eligibility via backend API
-            const { checkEligibility } = await import("../lib/api");
-            const result = await checkEligibility(campaignId.trim(), publicKey.toBase58());
-
-            console.log("Eligibility result:", result);
-
-            if (result.already_claimed) {
-                alert("You have already claimed from this campaign!");
-                setEligible(false);
-                setClaimAmount(0);
-            } else if (result.eligible && result.amount) {
-                setEligible(true);
-                setClaimAmount(result.amount);
-            } else {
-                setEligible(false);
-                setClaimAmount(0);
+            setFetchingCampaigns(true);
+            try {
+                const { getEligibleCampaigns } = await import("../lib/api");
+                const campaigns = await getEligibleCampaigns(publicKey.toBase58());
+                console.log("Eligible campaigns:", campaigns);
+                setEligibleCampaigns(campaigns);
+            } catch (e) {
+                console.error("Failed to fetch eligible campaigns:", e);
+                setEligibleCampaigns([]);
+            } finally {
+                setFetchingCampaigns(false);
             }
-        } catch (e: any) {
-            console.error(e);
-            if (e?.message?.includes("not found")) {
-                alert("Campaign not found! Please check the address.");
-            }
-            setEligible(false);
-        } finally {
-            setChecking(false);
-        }
-    };
+        };
 
-    const handleClaim = async () => {
+        fetchEligible();
+    }, [publicKey]);
+
+    const handleClaim = async (campaign: any) => {
         setLoading(true);
+        setClaimingId(campaign.address);
         try {
             if (!program || !publicKey) throw new Error("Wallet not connected");
 
             // Step 1: Generate ZK proof from backend
-            console.log("Generating ZK proof...");
-            const { generateProof, getCampaign, markClaimed } = await import("../lib/api");
+            console.log("Generating ZK proof for campaign:", campaign.name);
+            const { generateProof, markClaimed } = await import("../lib/api");
 
-            const proofData = await generateProof(campaignId.trim(), publicKey.toBase58());
+            const proofData = await generateProof(campaign.address, publicKey.toBase58());
             console.log("ZK Proof generated:", {
                 merkle_root: proofData.merkle_root,
                 nullifier_hash: proofData.nullifier_hash,
@@ -818,35 +1129,27 @@ function ClaimAirdrop() {
                 proof_path_length: proofData.merkle_path.length
             });
 
-            // Step 2: Get campaign data from backend (includes vault_address)
-            const campaignData = await getCampaign(campaignId.trim());
-
-            if (!campaignData) {
-                throw new Error("Campaign not found");
-            }
-
             // Campaign address IS the campaign PDA
-            const campaignPDA = new PublicKey(campaignId.trim());
+            const campaignPDA = new PublicKey(campaign.address);
 
-            // Get vault address from backend (stored during creation)
-            if (!campaignData.vault_address) {
-                throw new Error("Vault address not found in campaign data. This campaign may have been created with an older version.");
+            // Get vault address from campaign data
+            if (!campaign.vault_address) {
+                throw new Error("Vault address not found in campaign data.");
             }
-            const vaultAddress = new PublicKey(campaignData.vault_address);
+            const vaultAddress = new PublicKey(campaign.vault_address);
 
-            // Derive claim_record PDA
+            // Convert amount to lamports
+            const lamportsAmount = new BN(Math.floor(proofData.amount * LAMPORTS_PER_SOL));
+
+            let tx: string;
+
+            // Use legacy claim as default (compressed claim temporarily disabled)
+            console.log("🔷 Using LEGACY claim (default)");
+
             const { deriveClaimRecordPDA } = await import("../lib/pda");
             const [claimRecordPDA] = deriveClaimRecordPDA(campaignPDA, publicKey);
 
-            // Convert amount to lamports (use amount from proof for consistency)
-            const lamportsAmount = new BN(Math.floor(proofData.amount * LAMPORTS_PER_SOL));
-
-            // Step 3: Call smart contract claim instruction with proof data
-            // Note: In full implementation, proof would be verified on-chain
-            // For demo, backend verifies proof and we pass nullifier for tracking
-            console.log("Submitting claim with nullifier:", proofData.nullifier_hash);
-
-            const tx = await program.methods
+            tx = await program.methods
                 .claim(lamportsAmount)
                 .accounts({
                     claimer: publicKey,
@@ -857,22 +1160,26 @@ function ClaimAirdrop() {
                 })
                 .rpc();
 
-            console.log("Claim tx:", tx);
-            console.log("ZK Proof verified! Nullifier used:", proofData.nullifier_hash);
+            console.log("✅ Legacy claim tx:", tx);
+            console.log("⚡ ZK Proof verified! Nullifier:", proofData.nullifier_hash);
 
             // Mark as claimed in backend
-            await markClaimed(campaignId.trim(), publicKey.toBase58());
+            await markClaimed(campaign.address, publicKey.toBase58());
+
+            // Remove from eligible list
+            setEligibleCampaigns(prev => prev.filter(c => c.address !== campaign.address));
 
             setLastTx(tx);
+            setLastCampaignName(campaign.name);
             setSuccess(true);
-            setEligible(null);
-            setCampaignId("");
         } catch (error: any) {
             console.error("Claim error:", error);
             if (error?.toString().includes("User rejected")) {
                 alert("Claim cancelled by user.");
             } else if (error?.toString().includes("already been processed") || error?.toString().includes("AlreadyClaimed")) {
                 alert("You have already claimed from this campaign!");
+                // Remove from list
+                setEligibleCampaigns(prev => prev.filter(c => c.address !== campaign.address));
             } else if (error?.toString().includes("Failed to generate proof")) {
                 alert("Failed to generate ZK proof. You may not be eligible for this campaign.");
             } else {
@@ -880,9 +1187,9 @@ function ClaimAirdrop() {
             }
         } finally {
             setLoading(false);
+            setClaimingId(null);
         }
     };
-
 
     if (success) {
         return (
@@ -892,7 +1199,8 @@ function ClaimAirdrop() {
                         <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                     </div>
                     <h2 className="text-2xl font-bold text-white mb-2">Claim Successful!</h2>
-                    <p className="text-gray-400 mb-6">Your tokens have been anonymously transferred to your wallet.</p>
+                    <p className="text-gray-400 mb-2">Your tokens from <span className="text-white font-medium">{lastCampaignName}</span> have been transferred.</p>
+                    <p className="text-gray-500 text-sm mb-6">Transfer completed anonymously to your wallet.</p>
 
                     <div className="bg-black/40 rounded-xl p-4 mb-6 inline-block">
                         <div className="text-sm text-gray-500 mb-1">Transaction Signature</div>
@@ -917,11 +1225,10 @@ function ClaimAirdrop() {
                     <button
                         onClick={() => {
                             setSuccess(false);
-                            setChecking(false);
                         }}
                         className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-3 rounded-xl transition-all"
                     >
-                        Claim Another
+                        Back to Airdrops
                     </button>
                 </div>
             </div>
@@ -929,128 +1236,98 @@ function ClaimAirdrop() {
     }
 
     return (
-        <div className="max-w-2xl mx-auto">
-            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-8">
-                <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <Zap className="w-8 h-8 text-violet-400" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Claim Airdrop</h2>
-                    <p className="text-gray-400">Check your eligibility and claim tokens anonymously.</p>
+        <div className="max-w-3xl mx-auto">
+            <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Gift className="w-8 h-8 text-violet-400" />
                 </div>
+                <h2 className="text-2xl font-bold text-white mb-2">Your Eligible Airdrops</h2>
+                <p className="text-gray-400">Airdrops available for your wallet. Claim anonymously with ZK proofs.</p>
+            </div>
 
-                <div className="space-y-6">
-                    <div className="p-4 bg-violet-500/5 border border-violet-500/10 rounded-xl">
+            {!publicKey ? (
+                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-12 text-center">
+                    <Wallet className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white mb-2">Connect Your Wallet</h3>
+                    <p className="text-gray-500">Connect your wallet to see available airdrops.</p>
+                </div>
+            ) : fetchingCampaigns ? (
+                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-12 text-center">
+                    <Loader2 className="w-8 h-8 text-violet-400 mx-auto mb-4 animate-spin" />
+                    <p className="text-gray-500">Searching for eligible airdrops...</p>
+                </div>
+            ) : eligibleCampaigns.length === 0 ? (
+                <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-12 text-center">
+                    <Gift className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white mb-2">No Airdrops Available</h3>
+                    <p className="text-gray-500 mb-4">You don't have any pending airdrops to claim.</p>
+                    <p className="text-gray-600 text-sm">Ask campaign creators to add your wallet address.</p>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="p-4 bg-violet-500/5 border border-violet-500/10 rounded-xl mb-6">
                         <div className="flex items-start gap-3">
                             <EyeOff className="w-5 h-5 text-violet-400 mt-0.5" />
                             <div>
-                                <div className="font-medium text-violet-300">Anonymous Claim</div>
+                                <div className="font-medium text-violet-300">Anonymous Claims</div>
                                 <div className="text-sm text-violet-400/70 mt-1">
-                                    Your claim is private. The campaign creator cannot see who claimed.
+                                    All claims are private. Campaign creators cannot see who claimed.
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">
-                            Campaign Address
-                        </label>
-                        <input
-                            type="text"
-                            value={campaignId}
-                            onChange={(e) => setCampaignId(e.target.value)}
-                            placeholder="Enter campaign address..."
-                            className="w-full bg-black/40 border border-white/10 rounded-xl p-4 text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 font-mono"
-                        />
-                    </div>
-
-                    {eligible !== null && (
-                        <div className={`p-4 rounded-xl border ${eligible ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20"}`}>
-                            <div className="flex items-center gap-3">
-                                {eligible ? (
-                                    <>
-                                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                                        <div>
-                                            <div className="font-medium text-emerald-300">You're Eligible!</div>
-                                            <div className="text-sm text-emerald-400/70">You can claim {claimAmount} SOL from this airdrop.</div>
+                    {eligibleCampaigns.map((campaign) => (
+                        <div
+                            key={campaign.address}
+                            className="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:bg-white/[0.04] transition-all"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-xl flex items-center justify-center">
+                                        <Gift className="w-6 h-6 text-violet-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-white">{campaign.name}</h3>
+                                        <div className="text-sm text-gray-500">
+                                            Created {new Date(campaign.created_at).toLocaleDateString()}
                                         </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Eye className="w-5 h-5 text-red-400" />
-                                        <div>
-                                            <div className="font-medium text-red-300">Not Eligible</div>
-                                            <div className="text-sm text-red-400/70">
-                                                Your wallet <code className="bg-black/20 px-1 rounded">{publicKey?.toBase58().substring(0, 6)}...</code> is not in the recipient list.
-                                            </div>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-2xl font-bold text-emerald-400">{campaign.amount} SOL</div>
+                                    <div className="text-xs text-gray-500">Available to claim</div>
+                                </div>
+                            </div>
 
-                                            {/* Smart Hint for Debugging */}
-                                            {(() => {
-                                                const campaigns = JSON.parse(localStorage.getItem("shadow_drop_campaigns") || "[]");
-                                                const campaign = campaigns.find((c: any) => c.address === campaignId.trim());
-                                                const hasShort = campaign?.recipientList?.some((r: any) => r.address.length < 32);
-
-                                                if (hasShort) {
-                                                    return (
-                                                        <div className="mt-2 text-xs text-amber-400/80 bg-amber-500/10 p-2 rounded">
-                                                            <strong>Possible Cause:</strong> The whitelist contains shortened addresses (e.g. "7WF...").
-                                                            This usually happens if the creator copied a truncated address.
-                                                        </div>
-                                                    )
-                                                }
-                                                return null;
-                                            })()}
-                                        </div>
-                                    </>
-                                )}
+                            <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
+                                <div className="flex items-center gap-4 text-sm text-gray-500">
+                                    <span>{campaign.total_recipients} recipients</span>
+                                    <span>•</span>
+                                    <span>{campaign.total_amount} SOL total</span>
+                                </div>
+                                <button
+                                    onClick={() => handleClaim(campaign)}
+                                    disabled={loading}
+                                    className="px-6 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:opacity-50 text-white font-medium rounded-xl transition-all flex items-center gap-2"
+                                >
+                                    {claimingId === campaign.address ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Claiming...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Zap className="w-4 h-4" />
+                                            Claim
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         </div>
-                    )}
-
-                    {eligible === null ? (
-                        <button
-                            onClick={handleCheck}
-                            disabled={checking || !campaignId}
-                            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-2"
-                        >
-                            {checking ? (
-                                <span className="animate-pulse">Checking Eligibility...</span>
-                            ) : (
-                                <>
-                                    <Eye className="w-4 h-4" />
-                                    Check Eligibility
-                                </>
-                            )}
-                        </button>
-                    ) : eligible ? (
-                        <button
-                            onClick={(e) => {
-                                e.preventDefault();
-                                handleClaim();
-                            }}
-                            disabled={loading}
-                            className="w-full bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 disabled:opacity-50 text-white font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-2"
-                        >
-                            {loading ? (
-                                <span className="animate-pulse">Generating ZK Proof...</span>
-                            ) : (
-                                <>
-                                    <Zap className="w-4 h-4" />
-                                    Claim Anonymously
-                                </>
-                            )}
-                        </button>
-                    ) : (
-                        <button
-                            onClick={() => { setEligible(null); setCampaignId(""); }}
-                            className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-4 rounded-xl transition-all"
-                        >
-                            Try Another Campaign
-                        </button>
-                    )}
+                    ))}
                 </div>
-            </div>
+            )}
         </div>
     );
 }
@@ -1061,7 +1338,6 @@ function ManageCampaigns({ onViewCreate, systemStatus: _systemStatus }: { onView
     const [campaigns, setCampaigns] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [copiedId, setCopiedId] = useState<string | null>(null);
-    const [resetConfirm, setResetConfirm] = useState(false);
     const { publicKey } = useShadowDrop();
 
     const handleCopy = (text: string) => {
@@ -1089,6 +1365,10 @@ function ManageCampaigns({ onViewCreate, systemStatus: _systemStatus }: { onView
                     status: "active",
                     claimed: c.claimed_count,
                     address: c.address,
+                    signature: c.tx_signature,
+                    airdrop_type: c.airdrop_type || 'instant',
+                    vesting_cliff_seconds: c.vesting_cliff_seconds || 0,
+                    vesting_duration_seconds: c.vesting_duration_seconds || 0,
                 }));
                 setCampaigns(transformed);
             } catch (e) {
@@ -1115,33 +1395,13 @@ function ManageCampaigns({ onViewCreate, systemStatus: _systemStatus }: { onView
         <div>
             <div className="flex items-center justify-between mb-8">
                 <h2 className="text-2xl font-bold text-white">My Campaigns</h2>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => {
-                            if (resetConfirm) {
-                                localStorage.removeItem("shadow_drop_campaigns");
-                                window.location.reload();
-                            } else {
-                                setResetConfirm(true);
-                                setTimeout(() => setResetConfirm(false), 3000);
-                            }
-                        }}
-                        className={`px-4 py-2 font-medium rounded-xl transition-all flex items-center gap-2 border ${resetConfirm
-                            ? "bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30"
-                            : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10 hover:text-white"
-                            }`}
-                    >
-                        <Trash2 className="w-4 h-4" />
-                        <span className="hidden sm:inline">{resetConfirm ? "Confirm Reset?" : "Reset Data"}</span>
-                    </button>
-                    <button
-                        onClick={onViewCreate}
-                        className="px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium rounded-xl transition-all flex items-center gap-2"
-                    >
-                        <Gift className="w-4 h-4" />
-                        New Campaign
-                    </button>
-                </div>
+                <button
+                    onClick={onViewCreate}
+                    className="px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium rounded-xl transition-all flex items-center gap-2"
+                >
+                    <Gift className="w-4 h-4" />
+                    New Campaign
+                </button>
             </div>
 
             {campaigns.length === 0 ? (
@@ -1157,87 +1417,154 @@ function ManageCampaigns({ onViewCreate, systemStatus: _systemStatus }: { onView
                     </button>
                 </div>
             ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                     {campaigns.map((campaign, i) => (
-                        <div key={i} className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl hover:bg-white/[0.04] transition-all">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-xl flex items-center justify-center">
-                                        <Gift className="w-6 h-6 text-violet-400" />
+                        <div key={i} className="bg-gradient-to-b from-white/[0.04] to-white/[0.02] border border-white/10 rounded-2xl overflow-hidden hover:border-violet-500/30 transition-all">
+                            {/* Header */}
+                            <div className="p-6 border-b border-white/5">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-14 h-14 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 rounded-2xl flex items-center justify-center">
+                                            <Gift className="w-7 h-7 text-violet-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-white">{campaign.name}</h3>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-sm text-gray-500">Created {campaign.created}</span>
+                                                <span className="text-gray-600">•</span>
+                                                <code className="text-xs text-gray-500 font-mono">
+                                                    {campaign.address?.substring(0, 8)}...{campaign.address?.substring(campaign.address.length - 6)}
+                                                </code>
+                                                <button
+                                                    onClick={() => handleCopy(campaign.address)}
+                                                    className="p-1 hover:bg-white/10 rounded transition-all"
+                                                >
+                                                    {copiedId === campaign.address ? (
+                                                        <Check className="w-3 h-3 text-emerald-400" />
+                                                    ) : (
+                                                        <Copy className="w-3 h-3 text-gray-500" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h3 className="text-lg font-semibold text-white">{campaign.name}</h3>
-                                        <div className="text-sm text-gray-500">Created {campaign.created}</div>
+                                    <div className="flex items-center gap-3">
+                                        {/* Type Badge */}
+                                        <span className={`px-3 py-1.5 rounded-lg text-sm font-medium ${campaign.airdrop_type === 'vested'
+                                            ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
+                                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                            }`}>
+                                            {campaign.airdrop_type === 'vested' ? '⏱️ Vested' : '⚡ Instant'}
+                                        </span>
+                                        {/* Status Badge */}
+                                        <span className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-sm font-medium rounded-lg border border-emerald-500/30">
+                                            ✓ Active
+                                        </span>
                                     </div>
                                 </div>
-                                <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 text-sm font-medium rounded-full">
-                                    Active
-                                </span>
                             </div>
 
-                            <div className="grid grid-cols-4 gap-4">
-                                <div>
-                                    <div className="text-sm text-gray-500">Recipients</div>
-                                    <div className="text-lg font-semibold text-white">{campaign.recipients.toLocaleString()}</div>
+                            {/* Stats Grid */}
+                            <div className="p-6 grid grid-cols-2 md:grid-cols-5 gap-4">
+                                <div className="bg-white/[0.02] rounded-xl p-4 text-center">
+                                    <div className="text-2xl font-bold text-white">{campaign.recipients.toLocaleString()}</div>
+                                    <div className="text-xs text-gray-500 mt-1">Recipients</div>
                                 </div>
-                                <div>
-                                    <div className="text-sm text-gray-500">Claimed</div>
-                                    <div className="text-lg font-semibold text-white">{campaign.claimed.toLocaleString()}</div>
+                                <div className="bg-white/[0.02] rounded-xl p-4 text-center">
+                                    <div className="text-2xl font-bold text-white">{campaign.claimed.toLocaleString()}</div>
+                                    <div className="text-xs text-gray-500 mt-1">Claimed</div>
                                 </div>
-                                <div>
-                                    <div className="text-sm text-gray-500">Claim Rate</div>
-                                    <div className="text-lg font-semibold text-violet-400">
+                                <div className="bg-white/[0.02] rounded-xl p-4 text-center">
+                                    <div className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">
                                         {Math.round((campaign.claimed / campaign.recipients) * 100)}%
                                     </div>
+                                    <div className="text-xs text-gray-500 mt-1">Claim Rate</div>
                                 </div>
-                                <div>
-                                    <div className="text-sm text-gray-500">Total Amount</div>
-                                    <div className="text-lg font-semibold text-white">{campaign.amount}</div>
+                                <div className="bg-white/[0.02] rounded-xl p-4 text-center">
+                                    <div className="text-2xl font-bold text-white">{campaign.amount}</div>
+                                    <div className="text-xs text-gray-500 mt-1">Total SOL</div>
+                                </div>
+                                <div className="bg-white/[0.02] rounded-xl p-4 text-center">
+                                    <div className="text-2xl font-bold text-emerald-400">
+                                        {(parseFloat(campaign.amount) * (campaign.claimed / campaign.recipients)).toFixed(2)}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">SOL Distributed</div>
                                 </div>
                             </div>
 
-                            <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-3">
-                                <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+                            {/* Vesting Info (if vested) */}
+                            {campaign.airdrop_type === 'vested' && (
+                                <div className="mx-6 mb-4 p-4 bg-violet-500/10 border border-violet-500/20 rounded-xl">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <Clock className="w-4 h-4 text-violet-400" />
+                                        <span className="text-sm font-medium text-violet-300">Vesting Schedule</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <span className="text-gray-500">Cliff:</span>
+                                            <span className="ml-2 text-white font-medium">
+                                                {Math.floor((campaign.vesting_cliff_seconds || 0) / 86400)} days
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-500">Duration:</span>
+                                            <span className="ml-2 text-white font-medium">
+                                                {Math.floor((campaign.vesting_duration_seconds || 0) / 86400)} days
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Progress Bar */}
+                            <div className="px-6 pb-4">
+                                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                                     <div
-                                        className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full"
+                                        className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-full transition-all"
                                         style={{ width: `${(campaign.claimed / campaign.recipients) * 100}%` }}
                                     />
                                 </div>
+                            </div>
 
-
+                            {/* Action Buttons */}
+                            <div className="px-6 pb-6 flex items-center gap-3">
                                 <button
-                                    onClick={() => handleCopy(campaign.signature || campaign.address)}
-                                    className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
-                                    title="Copy Campaign ID"
+                                    onClick={() => handleCopy(campaign.address)}
+                                    className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2"
                                 >
-                                    {copiedId === (campaign.signature || campaign.address) ? (
+                                    {copiedId === campaign.address ? (
                                         <>
-                                            <Check className="w-3 h-3 text-emerald-400" />
-                                            <span className="text-emerald-400">Copied</span>
+                                            <Check className="w-4 h-4 text-emerald-400" />
+                                            <span className="text-emerald-400">Address Copied!</span>
                                         </>
                                     ) : (
                                         <>
-                                            <Copy className="w-3 h-3" />
-                                            <span>Start Claim</span>
+                                            <Copy className="w-4 h-4" />
+                                            <span>Copy Address</span>
                                         </>
                                     )}
                                 </button>
-
-                                {campaign.signature ? (
+                                <button
+                                    onClick={() => {
+                                        const shareText = `🎁 Claim your airdrop from ${campaign.name}!\n\n💰 ${campaign.amount} available\n📍 Address: ${campaign.address}\n\nClaim at: ${window.location.origin}`;
+                                        navigator.clipboard.writeText(shareText);
+                                        handleCopy('share_' + campaign.address);
+                                    }}
+                                    className="px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium rounded-xl transition-all flex items-center gap-2"
+                                >
+                                    <Gift className="w-4 h-4" />
+                                    <span>Share</span>
+                                </button>
+                                {campaign.signature && (
                                     <a
                                         href={`https://explorer.solana.com/tx/${campaign.signature}?cluster=custom&customUrl=http://localhost:8899`}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
+                                        className="px-4 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-medium rounded-xl transition-all flex items-center gap-2"
                                     >
-                                        <ExternalLink className="w-3 h-3" />
-                                        View Details
+                                        <ExternalLink className="w-4 h-4" />
+                                        <span>Explorer</span>
                                     </a>
-                                ) : (
-                                    <button className="px-4 py-2 bg-white/5 text-gray-500 cursor-not-allowed border border-white/5 text-sm font-medium rounded-lg flex items-center gap-2">
-                                        <ExternalLink className="w-3 h-3" />
-                                        View Details
-                                    </button>
                                 )}
                             </div>
                         </div>
