@@ -95,6 +95,7 @@ async fn create_campaign(
                 amount: r.amount,
                 claimed: false,
                 claimed_at: None,
+                id: None,
             })
             .collect(),
         // Vesting fields with defaults

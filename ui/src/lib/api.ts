@@ -62,6 +62,20 @@ export interface ProofResponse {
     secret: string;
 }
 
+/**
+ * ZK Proof response from Sunspot prover
+ */
+export interface ZkProofResponse {
+    groth16_proof: string;      // 256 bytes hex
+    public_inputs: string;       // 108 bytes hex (12 header + 96 data)
+    nullifier_hash: string;      // 32 bytes hex
+    nullifier: string;           // 32 bytes hex (for contract)
+    amount: number;              // in lamports
+    secret: string;              // 32 bytes hex
+    merkle_root: string;         // 32 bytes hex
+    leaf_index: number;
+}
+
 export interface EligibleCampaign {
     address: string;
     name: string;
@@ -176,6 +190,23 @@ export async function getEligibleCampaigns(wallet: string): Promise<EligibleCamp
     const result: ApiResponse<EligibleCampaign[]> = await response.json();
     if (!result.success || !result.data) {
         return [];
+    }
+    return result.data;
+}
+
+/**
+ * Generate Sunspot ZK proof for a claim (Groth16)
+ * This proof can be verified on-chain by the Sunspot verifier program
+ */
+export async function generateZkProof(address: string, wallet: string): Promise<ZkProofResponse> {
+    const response = await fetch(`${API_BASE}/api/v1/zk-proofs/${address}/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wallet }),
+    });
+    const result: ApiResponse<ZkProofResponse> = await response.json();
+    if (!result.success || !result.data) {
+        throw new Error(result.message || 'Failed to generate ZK proof');
     }
     return result.data;
 }

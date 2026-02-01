@@ -1,0 +1,142 @@
+# Shadow Drop - Sunspot Workflow
+# Usage: just <command>
+
+# Default recipe
+default:
+    @just --list
+
+# ============================================================================
+# SETUP
+# ============================================================================
+
+# Install Noir (compatible version for Sunspot)
+install-noir:
+    @echo "Installing Noir v1.0.0-beta.18..."
+    noirup -v 1.0.0-beta.18
+    nargo --version
+
+# Clone and build Sunspot
+install-sunspot:
+    @echo "Cloning Sunspot..."
+    @if [ ! -d "$HOME/sunspot" ]; then \
+        git clone https://github.com/reilabs/sunspot.git ~/sunspot; \
+    fi
+    @echo "Building Sunspot..."
+    cd ~/sunspot/go && go build -o sunspot .
+    @echo "Sunspot built successfully!"
+    @echo ""
+    @echo "Add to your shell profile:"
+    @echo 'export PATH="$HOME/sunspot/go:$PATH"'
+    @echo 'export GNARK_VERIFIER_BIN="$HOME/sunspot/gnark-solana/crates/verifier-bin"'
+
+# ============================================================================
+# NOIR DEVELOPMENT
+# ============================================================================
+
+# Run circuit tests
+test:
+    nargo test
+
+# Compile circuit to ACIR
+compile:
+    nargo compile
+    @echo "Compiled to target/shadow_drop.json"
+
+# Execute circuit and generate witness
+execute:
+    nargo execute shadow_drop_witness
+    @echo "Witness generated at target/shadow_drop_witness.gz"
+
+# Check circuit (generates Prover.toml if missing)
+check:
+    nargo check
+
+# ============================================================================
+# SUNSPOT WORKFLOW
+# ============================================================================
+
+# Compile ACIR to constraint system (.ccs)
+sunspot-compile: compile
+    @mkdir -p sunspot-out
+    sunspot compile target/shadow_drop.json -o sunspot-out/shadow_drop.ccs
+    @echo "Constraint system generated at sunspot-out/shadow_drop.ccs"
+
+# Generate proving and verifying keys (trusted setup)
+sunspot-setup: sunspot-compile
+    @mkdir -p sunspot-out/keys
+    sunspot setup sunspot-out/shadow_drop.ccs \
+        --pk sunspot-out/keys/pk.bin \
+        --vk sunspot-out/keys/vk.bin
+    @echo "Keys generated in sunspot-out/keys/"
+
+# Generate proof from witness
+sunspot-prove: execute
+    sunspot prove \
+        sunspot-out/shadow_drop.ccs \
+        sunspot-out/keys/pk.bin \
+        target/shadow_drop_witness.gz \
+        -o sunspot-out/proof.bin
+    @echo "Proof generated at sunspot-out/proof.bin"
+
+# Verify proof locally
+sunspot-verify:
+    sunspot verify \
+        sunspot-out/keys/vk.bin \
+        sunspot-out/proof.bin \
+        target/shadow_drop_witness.gz
+    @echo "Proof verified locally!"
+
+# ============================================================================
+# SOLANA DEPLOYMENT
+# ============================================================================
+
+# Create deployer keypair
+create-keypair:
+    @mkdir -p keypair
+    @if [ ! -f keypair/deployer.json ]; then \
+        solana-keygen new --outfile keypair/deployer.json --no-bip39-passphrase -s; \
+        echo "Keypair created at keypair/deployer.json"; \
+    else \
+        echo "Keypair already exists"; \
+    fi
+    @echo "Address: $$(solana address -k keypair/deployer.json)"
+
+# Airdrop SOL to deployer (devnet)
+airdrop:
+    solana airdrop 2 $(solana address -k keypair/deployer.json) --url devnet
+    @echo "Airdropped 2 SOL to deployer"
+
+# Deploy verifier program to Solana
+sunspot-deploy: sunspot-setup create-keypair
+    @echo "Deploying verifier to Solana devnet..."
+    sunspot deploy sunspot-out/keys/vk.bin \
+        --keypair keypair/deployer.json \
+        --url devnet \
+        -o sunspot-out/verifier_program_id.txt
+    @echo "Verifier deployed!"
+    @echo "Program ID: $$(cat sunspot-out/verifier_program_id.txt)"
+
+# ============================================================================
+# FULL WORKFLOW
+# ============================================================================
+
+# Run full pipeline: compile -> setup -> prove -> verify
+full: sunspot-setup sunspot-prove sunspot-verify
+    @echo ""
+    @echo "=== Full pipeline completed successfully! ==="
+
+# Clean all generated files
+clean:
+    rm -rf target/
+    rm -rf sunspot-out/
+    @echo "Cleaned all generated files"
+
+# Show circuit info
+info:
+    @echo "Circuit: Shadow Drop ZK Claim"
+    @echo "Tree Depth: 8 (max 256 recipients)"
+    @echo "Public Inputs: merkle_root, nullifier_hash, recipient"
+    @echo "Private Inputs: amount, secret, leaf_index, merkle_path[8]"
+    @echo ""
+    @echo "Hash Function: Poseidon2"
+    @echo "Proof System: Groth16 (via Sunspot)"

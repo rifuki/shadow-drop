@@ -417,7 +417,7 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                 const heliusApiKey = import.meta.env.VITE_HELIUS_API_KEY;
                 if (heliusApiKey && tokensWithoutMetadata.length > 0) {
                     try {
-                        const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`, {
+                        const response = await fetch(`https://devnet.helius-rpc.com/?api-key=${heliusApiKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1449,16 +1449,16 @@ function ClaimAirdrop() {
             if (!program || !publicKey) throw new Error("Wallet not connected");
 
             // Step 1: Generate ZK proof from backend
-            console.log("Generating ZK proof for campaign:", campaign.name);
-            const { generateProof, markClaimed } = await import("../lib/api");
+            console.log("🔐 Generating ZK proof for campaign:", campaign.name);
+            const { generateZkProof, markClaimed } = await import("../lib/api");
+            const { deriveNullifierRecordPDA, ZK_VERIFIER_PROGRAM_ID } = await import("../lib/pda");
 
-            const proofData = await generateProof(campaign.address, publicKey.toBase58());
-            console.log("ZK Proof generated:", {
-                merkle_root: proofData.merkle_root,
-                nullifier_hash: proofData.nullifier_hash,
-                leaf_index: proofData.leaf_index,
+            const proofData = await generateZkProof(campaign.address, publicKey.toBase58());
+            console.log("✅ ZK Proof generated:", {
+                groth16_proof_length: proofData.groth16_proof.length,
+                public_inputs_length: proofData.public_inputs.length,
+                nullifier: proofData.nullifier.slice(0, 16) + "...",
                 amount: proofData.amount,
-                proof_path_length: proofData.merkle_path.length
             });
 
             // Campaign address IS the campaign PDA
@@ -1470,72 +1470,57 @@ function ClaimAirdrop() {
             }
             const vaultAddress = new PublicKey(campaign.vault_address);
 
-            // Determine if Token or SOL campaign
+            // Convert hex strings to Uint8Arrays for contract
+            const hexToBytes = (hex: string): Uint8Array => {
+                const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
+                const bytes = new Uint8Array(cleanHex.length / 2);
+                for (let i = 0; i < bytes.length; i++) {
+                    bytes[i] = parseInt(cleanHex.substr(i * 2, 2), 16);
+                }
+                return bytes;
+            };
+
+            // Parse proof data
+            const groth16Proof = hexToBytes(proofData.groth16_proof);
+            const publicInputs = hexToBytes(proofData.public_inputs);
+            const nullifier = hexToBytes(proofData.nullifier);
+
+            console.log("📦 Proof bytes:", {
+                groth16_proof_bytes: groth16Proof.length,
+                public_inputs_bytes: publicInputs.length,
+                nullifier_bytes: nullifier.length,
+            });
+
+            // Derive nullifier record PDA
+            const [nullifierRecordPDA] = deriveNullifierRecordPDA(campaignPDA, nullifier);
+            console.log("🔑 Nullifier Record PDA:", nullifierRecordPDA.toBase58());
+
+            // Use ZK-verified claim
             let tx;
+            const claimAmount = new BN(proofData.amount);
 
-            if (campaign.token_symbol) {
-                // TOKEN CLAIM
-                const decimals = campaign.token_decimals || 9;
-                const tokenAmountBN = new BN(Math.floor(proofData.amount * Math.pow(10, decimals)));
+            console.log("🔷 Using ZK-verified claim (claimZkSimple)");
+            console.log("   ZK Verifier:", ZK_VERIFIER_PROGRAM_ID.toBase58());
 
-                // Get campaign token mint from data (we need to fetch full campaign info if not in eligible list, 
-                // but let's assume backend EligibleCampaign struct is updated or we fetch it)
-                // Actually EligibleCampaign struct now has token_symbol and decimals but not mint?
-                // Wait, we need mint to define accounts.
-                // Let's fetch full campaign details to get the mint.
-                const { getCampaign } = await import("../lib/api");
-                const fullCampaign = await getCampaign(campaign.address);
+            tx = await program.methods
+                .claimZkSimple(
+                    Array.from(groth16Proof) as any,     // [u8; 256]
+                    Array.from(publicInputs) as any,     // [u8; 96]
+                    Array.from(nullifier) as any,        // [u8; 32]
+                    claimAmount
+                )
+                .accounts({
+                    claimer: publicKey,
+                    campaign: campaignPDA,
+                    vault: vaultAddress,
+                    zkVerifier: ZK_VERIFIER_PROGRAM_ID,
+                    nullifierRecord: nullifierRecordPDA,
+                    systemProgram: SystemProgram.programId,
+                })
+                .rpc();
 
-                if (!fullCampaign?.token_mint) throw new Error("Token mint not found for this campaign");
-
-                const mintPubkey = new PublicKey(fullCampaign.token_mint);
-                // User ATA
-                const userAta = await getAssociatedTokenAddress(mintPubkey, publicKey);
-                // Vault ATA
-                const vaultAta = await getAssociatedTokenAddress(mintPubkey, campaignPDA, true);
-
-                console.log("🔷 Using TOKEN claim");
-
-                // Derive claim record PDA
-                const { deriveClaimRecordPDA } = await import("../lib/pda");
-                const [claimRecordPDA] = deriveClaimRecordPDA(campaignPDA, publicKey);
-
-                tx = await program.methods
-                    .claimToken(tokenAmountBN)
-                    .accounts({
-                        claimer: publicKey,
-                        campaign: campaignPDA,
-                        tokenVault: vaultAta,
-                        claimerTokenAccount: userAta,
-                        tokenMint: mintPubkey,
-                        claimRecord: claimRecordPDA,
-                        tokenProgram: TOKEN_PROGRAM_ID,
-                        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .rpc();
-            } else {
-                // SOL CLAIM (Legacy)
-                const lamportsAmount = new BN(Math.floor(proofData.amount * LAMPORTS_PER_SOL));
-                console.log("🔷 Using SOL claim");
-
-                const { deriveClaimRecordPDA } = await import("../lib/pda");
-                const [claimRecordPDA] = deriveClaimRecordPDA(campaignPDA, publicKey);
-
-                tx = await program.methods
-                    .claim(lamportsAmount)
-                    .accounts({
-                        claimer: publicKey,
-                        campaign: campaignPDA,
-                        vault: vaultAddress,
-                        claimRecord: claimRecordPDA,
-                        systemProgram: SystemProgram.programId,
-                    })
-                    .rpc();
-            }
-
-            console.log("✅ Legacy claim tx:", tx);
-            console.log("⚡ ZK Proof verified! Nullifier:", proofData.nullifier_hash);
+            console.log("✅ ZK Claim tx:", tx);
+            console.log("⚡ ZK Proof verified on-chain! Nullifier:", proofData.nullifier.slice(0, 16) + "...");
 
             // Mark as claimed in backend
             await markClaimed(campaign.address, publicKey.toBase58());

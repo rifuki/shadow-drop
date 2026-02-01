@@ -4,6 +4,9 @@ import { buildMerkleTree, generateSecret, toHex } from "./merkle";
 // Program ID
 export const PROGRAM_ID = new PublicKey("7wjDqUQUpnudD25MELXBiayNiMrStXaKAdrLMwzccu7v");
 
+// Sunspot Verifier Program ID (deployed on devnet)
+export const ZK_VERIFIER_PROGRAM_ID = new PublicKey("5C5x84vdrZi1h89u4g7VBsKyrBk5AQ1RjnrFFd5KvWuj");
+
 /**
  * Derive Campaign PDA address
  */
@@ -41,6 +44,20 @@ export function deriveClaimRecordPDA(campaign: PublicKey, claimer: PublicKey): [
             Buffer.from("claim"),
             campaign.toBuffer(),
             claimer.toBuffer(),
+        ],
+        PROGRAM_ID
+    );
+}
+
+/**
+ * Derive Nullifier Record PDA address (for ZK claims)
+ */
+export function deriveNullifierRecordPDA(campaign: PublicKey, nullifier: Uint8Array): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("nullifier"),
+            campaign.toBuffer(),
+            nullifier,
         ],
         PROGRAM_ID
     );

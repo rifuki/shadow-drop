@@ -2,7 +2,7 @@
   "address": "7wjDqUQUpnudD25MELXBiayNiMrStXaKAdrLMwzccu7v",
   "metadata": {
     "name": "shadow_drop",
-    "version": "0.0.1",
+    "version": "0.0.3",
     "spec": "0.1.0",
     "description": "Created with Anchor"
   },
@@ -118,6 +118,385 @@
       "args": [
         {
           "name": "proof",
+          "type": {
+            "defined": {
+              "name": "ValidityProof"
+            }
+          }
+        },
+        {
+          "name": "address_tree_info",
+          "type": {
+            "defined": {
+              "name": "PackedAddressTreeInfo"
+            }
+          }
+        },
+        {
+          "name": "output_state_tree_index",
+          "type": "u8"
+        },
+        {
+          "name": "nullifier",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_token",
+      "docs": [
+        "Claim tokens from a token campaign (legacy flow)"
+      ],
+      "discriminator": [
+        116,
+        206,
+        27,
+        191,
+        166,
+        19,
+        0,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "token_vault",
+          "docs": [
+            "Token vault (owned by campaign PDA)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "claimer_token_account",
+          "docs": [
+            "Claimer's token account to receive tokens"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "claimer"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "Token mint"
+          ]
+        },
+        {
+          "name": "claim_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "account",
+                "path": "claimer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "claim_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_zk_simple",
+      "docs": [
+        "Simplified ZK claim - verifies Groth16 proof without Light Protocol",
+        "Uses PDA-based nullifier (simpler, still on-chain verified)"
+      ],
+      "discriminator": [
+        209,
+        161,
+        152,
+        176,
+        22,
+        168,
+        161,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "zk_verifier"
+        },
+        {
+          "name": "nullifier_record",
+          "docs": [
+            "PDA-based nullifier record (prevents double-claim)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  117,
+                  108,
+                  108,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "arg",
+                "path": "nullifier"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "groth16_proof",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_inputs",
+          "type": {
+            "array": [
+              "u8",
+              108
+            ]
+          }
+        },
+        {
+          "name": "nullifier",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "claim_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_zk_verified",
+      "docs": [
+        "Claim with full ZK proof verification (Hybrid: Sunspot + Light Protocol)",
+        "1. Verifies Groth16 proof via CPI to Sunspot verifier",
+        "2. Creates compressed nullifier via Light Protocol",
+        "3. Transfers SOL to claimer"
+      ],
+      "discriminator": [
+        72,
+        81,
+        189,
+        215,
+        17,
+        145,
+        160,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "zk_verifier",
+          "docs": [
+            "This is the deployed verifier from `sunspot deploy`"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "groth16_proof",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_inputs",
+          "type": {
+            "array": [
+              "u8",
+              108
+            ]
+          }
+        },
+        {
+          "name": "light_proof",
           "type": {
             "defined": {
               "name": "ValidityProof"
@@ -296,6 +675,208 @@
           "type": "i64"
         }
       ]
+    },
+    {
+      "name": "create_token_campaign",
+      "docs": [
+        "Create a new token airdrop campaign",
+        "Uses SPL Token for token distribution"
+      ],
+      "discriminator": [
+        40,
+        166,
+        86,
+        242,
+        204,
+        173,
+        86,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "campaign",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  109,
+                  112,
+                  97,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "campaign_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_mint",
+          "docs": [
+            "Token mint for this campaign"
+          ]
+        },
+        {
+          "name": "token_vault",
+          "docs": [
+            "Token vault (ATA owned by campaign PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "campaign"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "authority_token_account",
+          "docs": [
+            "Authority's token account to transfer from"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "campaign_id",
+          "type": "string"
+        },
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "total_amount",
+          "type": "u64"
+        },
+        {
+          "name": "vesting_start",
+          "type": "i64"
+        },
+        {
+          "name": "vesting_cliff",
+          "type": "i64"
+        },
+        {
+          "name": "vesting_duration",
+          "type": "i64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -323,6 +904,19 @@
         62,
         96,
         7
+      ]
+    },
+    {
+      "name": "NullifierRecord",
+      "discriminator": [
+        56,
+        18,
+        57,
+        175,
+        69,
+        202,
+        189,
+        70
       ]
     }
   ],
@@ -381,6 +975,26 @@
       "code": 6007,
       "name": "NothingToVest",
       "msg": "Nothing to vest yet"
+    },
+    {
+      "code": 6008,
+      "name": "NotTokenCampaign",
+      "msg": "Not a token campaign"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidMerkleRoot",
+      "msg": "Invalid merkle root - proof doesn't match campaign"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidNullifier",
+      "msg": "Invalid nullifier - proof doesn't match provided nullifier"
+    },
+    {
+      "code": 6011,
+      "name": "ZkProofVerificationFailed",
+      "msg": "ZK proof verification failed"
     }
   ],
   "types": [
@@ -450,6 +1064,18 @@
           {
             "name": "vesting_duration",
             "type": "i64"
+          },
+          {
+            "name": "token_mint",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "token_vault",
+            "type": {
+              "option": "pubkey"
+            }
           }
         ]
       }
@@ -527,6 +1153,38 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "NullifierRecord",
+      "docs": [
+        "ZK Nullifier record - prevents double-claim using ZK proof"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "nullifier",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "claimer",
+            "type": "pubkey"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
           }
         ]
       }

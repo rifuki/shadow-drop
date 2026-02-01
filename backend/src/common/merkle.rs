@@ -117,24 +117,55 @@ impl MerkleTree {
     }
 }
 
+use ark_bn254::Fr;
+use ark_ff::{PrimeField, BigInteger};
+use taceo_poseidon2::bn254::t4 as poseidon2;
+
 /// Compute leaf hash: hash(recipient, amount, secret)
+/// Matches Noir circuit expectations: poseidon(recipient, amount, secret)
 pub fn compute_leaf_hash(wallet: &str, amount: f64, secret: &[u8; 32]) -> Hash {
-    // Convert wallet to bytes
-    let wallet_bytes = wallet.as_bytes();
-    
-    // Convert amount to bytes (as lamports)
+    // 1. Recipient (Wallet) -> Field Element
+    // Must match `wallet_to_field` in zk_proofs.rs:
+    // Decode Base58, take first 31 bytes, pad to 32 bytes (BE)
+    let mut wallet_bytes = [0u8; 32];
+    if let Ok(decoded) = bs58::decode(wallet).into_vec() {
+         let len = decoded.len().min(31);
+         // Place at the end for proper BE integer representation (if we view it as a number)
+         // But checking zk_proofs.rs logic:
+         // field_bytes[32 - len..].copy_from_slice(&bytes[..len]);
+         // This creates [0, ..., byte0, byte1 ...]
+         // When read as BE number (Fr::from_be_bytes), this is correct.
+         wallet_bytes[32 - len..].copy_from_slice(&decoded[..len]);
+    } else {
+        // Fallback for tests/non-base58 (like "wallet1")
+        // Just use bytes, fit at end
+        let w_bytes = wallet.as_bytes();
+        let len = w_bytes.len().min(31);
+        wallet_bytes[32 - len..].copy_from_slice(&w_bytes[..len]);
+    }
+
+    // 2. Amount -> Field Element
+    // Convert to lamports (u64)
     let amount_lamports = (amount * 1_000_000_000.0) as u64;
-    let amount_bytes = amount_lamports.to_le_bytes();
-    
-    // Compute hash: Poseidon-like simplified hash
-    // In production, use light-poseidon crate
-    poseidon_hash_3(wallet_bytes, &amount_bytes, secret)
+    // To read as correct integer in BE, put bytes at end.
+    let mut amount_arr = [0u8; 32];
+    amount_arr[24..32].copy_from_slice(&amount_lamports.to_be_bytes());
+
+    // 3. Secret is already [u8; 32], assuming it's random bytes valid for field.
+    // If secret >= Modulus, from_be_bytes will modulo it. That's fine for a secret.
+
+    // Poseidon hash 3 inputs
+    poseidon_hash_3(&wallet_bytes, &amount_arr, secret)
 }
 
 /// Compute nullifier: hash(secret, leaf_index)
 pub fn compute_nullifier(secret: &[u8; 32], leaf_index: usize) -> Hash {
-    let index_bytes = (leaf_index as u64).to_le_bytes();
-    poseidon_hash_2(secret, &index_bytes)
+    // Leaf index -> Field Element
+    let index_u64 = leaf_index as u64;
+    let mut index_arr = [0u8; 32];
+    index_arr[24..32].copy_from_slice(&index_u64.to_be_bytes());
+
+    poseidon_hash_2(secret, &index_arr)
 }
 
 /// Hash two nodes together
@@ -142,73 +173,69 @@ fn hash_pair(left: &Hash, right: &Hash) -> Hash {
     poseidon_hash_2(left, right)
 }
 
-/// Simplified Poseidon-like hash for 2 inputs
-/// In production, replace with light-poseidon
-fn poseidon_hash_2(a: &[u8], b: &[u8]) -> Hash {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash as StdHash, Hasher};
+/// Poseidon2 sponge hash for 2 inputs (BN254)
+/// Matches Noir's Poseidon2::hash([a, b], 2)
+/// 
+/// Noir stdlib sponge construction:
+/// - Initial state: [0, 0, 0, iv] where iv = message_length * 2^64
+/// - Absorb inputs by adding to state[0..n]
+/// - Permute and squeeze state[0]
+fn poseidon_hash_2(a: &[u8; 32], b: &[u8; 32]) -> Hash {
+    let a_field = bytes_to_field_element(a);
+    let b_field = bytes_to_field_element(b);
     
-    let mut hasher = DefaultHasher::new();
-    b"poseidon2".hash(&mut hasher);
-    a.hash(&mut hasher);
-    b.hash(&mut hasher);
+    // iv = 2 * 2^64 = 36893488147419103232
+    let two_pow_64 = Fr::from(18446744073709551616u128);
+    let iv = Fr::from(2u64) * two_pow_64;
     
-    let h1 = hasher.finish();
+    // State after absorbing 2 inputs: [a, b, 0, iv]
+    let mut state = [a_field, b_field, Fr::from(0u64), iv];
     
-    let mut hasher2 = DefaultHasher::new();
-    h1.hash(&mut hasher2);
-    let h2 = hasher2.finish();
+    // Apply permutation
+    poseidon2::permutation_in_place(&mut state);
     
-    let mut hasher3 = DefaultHasher::new();
-    h2.hash(&mut hasher3);
-    let h3 = hasher3.finish();
-    
-    let mut hasher4 = DefaultHasher::new();
-    h3.hash(&mut hasher4);
-    let h4 = hasher4.finish();
-    
-    let mut result = [0u8; 32];
-    result[0..8].copy_from_slice(&h1.to_le_bytes());
-    result[8..16].copy_from_slice(&h2.to_le_bytes());
-    result[16..24].copy_from_slice(&h3.to_le_bytes());
-    result[24..32].copy_from_slice(&h4.to_le_bytes());
-    result
+    // Output is state[0]
+    field_element_to_bytes(state[0])
 }
 
-/// Simplified Poseidon-like hash for 3 inputs
-fn poseidon_hash_3(a: &[u8], b: &[u8], c: &[u8]) -> Hash {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash as StdHash, Hasher};
+/// Poseidon2 sponge hash for 3 inputs (BN254)
+/// Matches Noir's Poseidon2::hash([a, b, c], 3)
+fn poseidon_hash_3(a: &[u8; 32], b: &[u8; 32], c: &[u8; 32]) -> Hash {
+    let a_field = bytes_to_field_element(a);
+    let b_field = bytes_to_field_element(b);
+    let c_field = bytes_to_field_element(c);
     
-    let mut hasher = DefaultHasher::new();
-    b"poseidon3".hash(&mut hasher);
-    a.hash(&mut hasher);
-    b.hash(&mut hasher);
-    c.hash(&mut hasher);
+    // iv = 3 * 2^64 = 55340232221128654848
+    let two_pow_64 = Fr::from(18446744073709551616u128);
+    let iv = Fr::from(3u64) * two_pow_64;
     
-    let h1 = hasher.finish();
+    // State after absorbing 3 inputs: [a, b, c, iv]
+    let mut state = [a_field, b_field, c_field, iv];
     
-    let mut hasher2 = DefaultHasher::new();
-    h1.hash(&mut hasher2);
-    let h2 = hasher2.finish();
+    // Apply permutation
+    poseidon2::permutation_in_place(&mut state);
     
-    let mut hasher3 = DefaultHasher::new();
-    h2.hash(&mut hasher3);
-    let h3 = hasher3.finish();
-    
-    let mut hasher4 = DefaultHasher::new();
-    h3.hash(&mut hasher4);
-    let h4 = hasher4.finish();
-    
-    let mut result = [0u8; 32];
-    result[0..8].copy_from_slice(&h1.to_le_bytes());
-    result[8..16].copy_from_slice(&h2.to_le_bytes());
-    result[16..24].copy_from_slice(&h3.to_le_bytes());
-    result[24..32].copy_from_slice(&h4.to_le_bytes());
-    result
+    // Output is state[0]
+    field_element_to_bytes(state[0])
+}
+
+// Helpers for light-poseidon conversion
+// Use Big Endian to match Prover.toml hex strings (0x...)
+
+fn bytes_to_field_element(bytes: &[u8; 32]) -> Fr {
+    Fr::from_be_bytes_mod_order(bytes)
+}
+
+fn field_element_to_bytes(field: Fr) -> [u8; 32] {
+    let bigint = field.into_bigint();
+    let mut bytes = [0u8; 32];
+    // Use Big Endian bytes
+    bytes.copy_from_slice(&bigint.to_bytes_be());
+    bytes
 }
 
 /// Generate a random secret for a recipient
+/// Returns bytes that represent a valid BN254 field element (< modulus)
 pub fn generate_secret() -> [u8; 32] {
     use std::time::{SystemTime, UNIX_EPOCH};
     
@@ -217,12 +244,17 @@ pub fn generate_secret() -> [u8; 32] {
         .unwrap()
         .as_nanos();
     
-    let mut secret = [0u8; 32];
-    for (i, chunk) in secret.chunks_mut(8).enumerate() {
+    // Generate random-ish bytes
+    let mut random_bytes = [0u8; 32];
+    for (i, chunk) in random_bytes.chunks_mut(8).enumerate() {
         let val = now.wrapping_add(i as u128).to_le_bytes();
         chunk.copy_from_slice(&val[0..8]);
     }
-    secret
+    
+    // Convert to field element (reduces mod field order) then back to bytes
+    // This ensures the value is always < BN254 field modulus
+    let field_element = Fr::from_be_bytes_mod_order(&random_bytes);
+    field_element_to_bytes(field_element)
 }
 
 #[cfg(test)]

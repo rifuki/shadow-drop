@@ -9,6 +9,7 @@ use shadow_drop_api::{
     common::server::create_dual_stack_listener, config::Config, logging,
     middleware::http_trace_middleware::http_trace_middleware, routes::app_routes, state::AppState,
 };
+use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -30,7 +31,17 @@ async fn main() -> std::io::Result<()> {
         "🚀 Starting server"
     );
 
-    let app_state = AppState::new(config.clone());
+    // Connect to database
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pool = PgPool::connect(&database_url).await.expect("Failed to connect to database");
+
+    // Run migrations
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let app_state = AppState::new(config.clone(), pool);
     info!("✅ Application state initialized");
 
     let allowed_origins: Vec<_> = app_state

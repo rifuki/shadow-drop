@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     common::{
-        merkle::{compute_nullifier, generate_secret, MerkleTree, TREE_DEPTH},
+        merkle::{compute_nullifier, generate_secret, MerkleTree},
         response::{ApiErrorResponse, ApiResponse, ApiSuccessResponse},
     },
     state::AppState,

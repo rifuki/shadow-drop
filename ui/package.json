@@ -1,7 +1,7 @@
 {
   "name": "shadow-drop-ui",
   "private": true,
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@aztec/bb.js": "^0.82.2",
     "@coral-xyz/anchor": "^0.32.1",
     "@lightprotocol/compressed-token": "^0.22.0",
     "@lightprotocol/stateless.js": "^0.22.0",
+    "@noir-lang/noir_js": "^1.0.0-beta.3",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",
