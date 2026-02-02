@@ -1,0 +1,26 @@
+databases:
+  - name: shadow-drop-db
+    plan: free
+    databaseName: shadow_drop
+    user: shadow_drop
+
+services:
+  - type: web
+    name: shadow-drop-api
+    runtime: rust
+    plan: free
+    buildCommand: cargo build --release
+    startCommand: ./target/release/shadow-drop-api
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: RUST_LOG
+        value: info
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://shadow-drop.vercel.app,http://localhost:5173
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shadow-drop-db
+          property: connectionString

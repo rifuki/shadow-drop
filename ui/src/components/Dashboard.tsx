@@ -15,7 +15,7 @@ import {
     Upload, Clock, CheckCircle2,
     Wallet, Copy, ExternalLink,
     Sparkles, Lock, AlertCircle, Loader2,
-    Calendar, ChevronDown, Coins, X
+    Calendar, ChevronDown, Coins, X, ChevronRight, Search
 } from "lucide-react";
 import { useNetwork } from "../providers/NetworkProvider";
 import { Toaster, toast } from 'sonner';
@@ -393,9 +393,14 @@ const generateCampaignName = () => {
 function CreateAirdrop({ balance }: { balance: number | null }) {
     const [step, setStep] = useState(0);
     const [airdropType, setAirdropType] = useState<"instant" | "vested" | null>(null);
-    const [recipients, setRecipients] = useState("");
+    // Generate random default recipients with amounts 10-1000
+    const generateDefaultRecipients = () => {
+        const randomAmount = Math.floor(Math.random() * 991) + 10; // 10-1000
+        return `7WF6wgKSbaKarTGs6PLDEAKFPRnie758x4Ya9ukAJe6r,${randomAmount}`;
+    };
+    const [recipients, setRecipients] = useState(generateDefaultRecipients());
     const [tokenAmount, setTokenAmount] = useState("");
-    const [campaignName, setCampaignName] = useState("");
+    const [campaignName, setCampaignName] = useState(generateCampaignName());
     const [vestingEnabled, setVestingEnabled] = useState(false);
     const [vestingStartNow, setVestingStartNow] = useState(true);
     const [vestingCliffDays, setVestingCliffDays] = useState("");
@@ -413,7 +418,10 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
     // Wallet tokens
     const [walletTokens, setWalletTokens] = useState<Array<{ mint: string, name: string, symbol: string, decimals: number, balance: number, uiBalance: string, logo?: string }>>([]);;
     const [loadingTokens, setLoadingTokens] = useState(false);
+    const [showTokenModal, setShowTokenModal] = useState(false);
+    const [tokenSearch, setTokenSearch] = useState("");
     const { publicKey, program, connection } = useShadowDrop();
+    const { network } = useNetwork();
 
     // Fetch wallet token accounts
     useEffect(() => {
@@ -451,8 +459,12 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
 
                 // Try to fetch metadata from Helius if API key is available
                 const heliusApiKey = import.meta.env.VITE_HELIUS_API_KEY;
+                console.log("🔍 Helius API Key available:", !!heliusApiKey);
+                console.log("🎯 Tokens to fetch metadata for:", tokensWithoutMetadata.map(t => t.mint));
+
                 if (heliusApiKey && tokensWithoutMetadata.length > 0) {
                     try {
+                        console.log("📡 Fetching from Helius...");
                         const response = await fetch(`https://devnet.helius-rpc.com/?api-key=${heliusApiKey}`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -466,20 +478,68 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                             })
                         });
                         const data = await response.json();
+
+
                         if (data.result) {
                             const metadataMap = new Map();
-                            data.result.forEach((asset: any) => {
+
+                            // Process assets and try to get logos
+                            for (const asset of data.result) {
+
+
                                 if (asset && asset.id) {
+                                    // Try to get logo from various sources
+                                    let logo = asset.content?.links?.image ||
+                                        asset.content?.json?.image ||
+                                        asset.content?.files?.find((f: any) => f.mime?.startsWith('image'))?.uri ||
+                                        asset.content?.files?.[0]?.uri || null;
+
+                                    // If no logo and json_uri is base64, decode it to get image
+                                    if (!logo && asset.content?.json_uri?.startsWith('data:application/json;base64,')) {
+                                        try {
+                                            const base64Data = asset.content.json_uri.split(',')[1];
+                                            const jsonStr = atob(base64Data);
+                                            const jsonData = JSON.parse(jsonStr);
+
+                                            logo = jsonData.image || null;
+                                        } catch (decodeErr) {
+                                            console.warn("Failed to decode base64 json_uri:", decodeErr);
+                                        }
+                                    }
+
+                                    // If no logo and json_uri is an external URL, fetch it
+                                    if (!logo && asset.content?.json_uri &&
+                                        (asset.content.json_uri.startsWith('http') || asset.content.json_uri.startsWith('ipfs'))) {
+                                        try {
+                                            let fetchUrl = asset.content.json_uri;
+                                            // Convert IPFS to gateway URL
+                                            if (fetchUrl.startsWith('ipfs://')) {
+                                                fetchUrl = fetchUrl.replace('ipfs://', 'https://ipfs.io/ipfs/');
+                                            }
+
+                                            const metaResponse = await fetch(fetchUrl);
+                                            if (metaResponse.ok) {
+                                                const metaJson = await metaResponse.json();
+
+                                                logo = metaJson.image || null;
+                                                // Convert IPFS image to gateway URL
+                                                if (logo?.startsWith('ipfs://')) {
+                                                    logo = logo.replace('ipfs://', 'https://ipfs.io/ipfs/');
+                                                }
+                                            }
+                                        } catch (fetchErr) {
+                                            console.warn("Failed to fetch external json_uri:", fetchErr);
+                                        }
+                                    }
+
+
                                     metadataMap.set(asset.id, {
                                         name: asset.content?.metadata?.name || null,
                                         symbol: asset.content?.metadata?.symbol || null,
-                                        logo: asset.content?.links?.image ||
-                                            asset.content?.json?.image ||
-                                            asset.content?.files?.find((f: any) => f.mime?.startsWith('image'))?.uri ||
-                                            asset.content?.files?.[0]?.uri || null
+                                        logo: logo
                                     });
                                 }
-                            });
+                            }
                             // Merge metadata
                             const tokensWithMetadata = tokensWithoutMetadata.map(token => {
                                 const meta = metadataMap.get(token.mint);
@@ -493,12 +553,43 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
                                 }
                                 return token;
                             });
+
                             setWalletTokens(tokensWithMetadata);
                             return;
                         }
                     } catch (metaErr) {
-                        console.warn("Failed to fetch token metadata from Helius:", metaErr);
+                        console.warn("❌ Failed to fetch token metadata from Helius:", metaErr);
                     }
+                }
+
+                // Fallback: Try to fetch from Solana Token List (for known tokens)
+                try {
+                    const solanaTokenListUrl = 'https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json';
+                    const tokenListResponse = await fetch(solanaTokenListUrl);
+                    if (tokenListResponse.ok) {
+                        const tokenListData = await tokenListResponse.json();
+                        const tokenMap = new Map<string, { name: string; symbol: string; logoURI: string }>();
+                        tokenListData.tokens?.forEach((t: any) => {
+                            tokenMap.set(t.address, { name: t.name, symbol: t.symbol, logoURI: t.logoURI });
+                        });
+
+                        const enrichedTokens = tokensWithoutMetadata.map(token => {
+                            const meta = tokenMap.get(token.mint);
+                            if (meta) {
+                                return {
+                                    ...token,
+                                    name: meta.name || token.name,
+                                    symbol: meta.symbol || token.symbol,
+                                    logo: meta.logoURI
+                                };
+                            }
+                            return token;
+                        });
+                        setWalletTokens(enrichedTokens);
+                        return;
+                    }
+                } catch (fallbackErr) {
+                    console.warn("Failed to fetch from token list:", fallbackErr);
                 }
 
                 setWalletTokens(tokensWithoutMetadata);
@@ -710,196 +801,86 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
     if (success) {
 
 
-
         return (
-            <div className="max-w-3xl mx-auto">
-                {/* Confetti-like top decoration */}
-                <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl overflow-hidden">
+            <div className="max-w-md mx-auto">
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
                     {/* Success Header */}
-                    <div className="bg-zinc-900 border-b border-zinc-800 p-8 text-center">
-                        <div className="w-24 h-24 bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-6 border border-zinc-700">
-                            <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+                    <div className="p-8 text-center">
+                        <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
                         </div>
-                        <h2 className="text-3xl font-bold text-white mb-2">Airdrop Created Successfully!</h2>
-                        <p className="text-zinc-400">Your private airdrop campaign is now live and ready for claims</p>
+                        <h2 className="text-2xl font-bold text-white mb-1">Campaign Created</h2>
+                        <p className="text-zinc-500 text-sm">{campaignName}</p>
                     </div>
 
-                    {/* Campaign Details */}
-                    <div className="p-8">
-                        {/* Campaign Name & Type Badge */}
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <div className="text-sm text-gray-500 mb-1">Campaign Name</div>
-                                <div className="text-2xl font-bold text-white">{campaignName}</div>
-                            </div>
-                            <div className={`px-4 py-2 rounded-full font-semibold text-sm ${vestingEnabled
-                                ? "bg-zinc-800 text-zinc-300 border border-zinc-700"
-                                : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                }`}>
-                                {vestingEnabled ? "⏱️ Vested Release" : "⚡ Instant Release"}
-                            </div>
+                    {/* Quick Stats */}
+                    <div className="grid grid-cols-3 border-t border-zinc-800">
+                        <div className="p-4 text-center border-r border-zinc-800">
+                            <div className="text-xl font-bold text-white">{tokenAmount}</div>
+                            <div className="text-xs text-zinc-500">{tokenType === "spl" ? tokenSymbol || "Tokens" : "SOL"}</div>
                         </div>
-
-                        {/* Stats Grid */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center">
-                                <div className="text-3xl font-bold text-white">
-                                    {tokenAmount}
-                                </div>
-                                <div className="text-sm text-zinc-500 mt-1">{tokenType === "spl" ? tokenSymbol || "Tokens" : "SOL"} Total</div>
-                            </div>
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center">
-                                <div className="text-3xl font-bold text-white">{recipientCount}</div>
-                                <div className="text-sm text-zinc-500 mt-1">Recipients</div>
-                            </div>
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center">
-                                <div className="text-3xl font-bold text-emerald-400">0%</div>
-                                <div className="text-sm text-zinc-500 mt-1">Claimed</div>
-                            </div>
-                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-center">
-                                <div className="text-3xl font-bold text-emerald-400">Active</div>
-                                <div className="text-sm text-zinc-500 mt-1">Status</div>
-                            </div>
+                        <div className="p-4 text-center border-r border-zinc-800">
+                            <div className="text-xl font-bold text-white">{recipientCount}</div>
+                            <div className="text-xs text-zinc-500">Recipients</div>
                         </div>
-
-                        {/* Vesting Schedule (if enabled) */}
-                        {vestingEnabled && (
-                            <div className="bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 rounded-2xl p-6 mb-8">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <Clock className="w-5 h-5 text-violet-400" />
-                                    <div className="font-semibold text-violet-300">Vesting Schedule</div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-6">
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">Cliff Period</div>
-                                        <div className="text-xl font-bold text-white">
-                                            {vestingCliffDays || "0"} days
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-1">
-                                            No tokens released during this period
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">Total Duration</div>
-                                        <div className="text-xl font-bold text-white">
-                                            {vestingDurationDays || "30"} days
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-1">
-                                            Linear release after cliff
-                                        </div>
-                                    </div>
-                                </div>
-                                {/* Visual Timeline */}
-                                <div className="mt-6">
-                                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-gradient-to-r from-orange-500 to-violet-500"
-                                            style={{
-                                                width: `${(parseInt(vestingCliffDays || "0") / parseInt(vestingDurationDays || "30")) * 100}%`
-                                            }}
-                                        />
-                                    </div>
-                                    <div className="flex justify-between mt-2 text-xs text-gray-500">
-                                        <span>Start</span>
-                                        <span>Cliff ({vestingCliffDays || "0"}d)</span>
-                                        <span>End ({vestingDurationDays || "30"}d)</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Campaign Address */}
-                        <div className="bg-black/40 rounded-2xl p-5 mb-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <div className="text-sm text-gray-500 mb-1">Campaign Address</div>
-                                    <code className="text-violet-400 font-mono text-lg">
-                                        {campaignAddress.substring(0, 12)}...{campaignAddress.substring(campaignAddress.length - 12)}
-                                    </code>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(campaignAddress);
-                                        toast.success("Address copied!");
-                                    }}
-                                    className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all"
-                                >
-                                    <Copy className="w-5 h-5 text-gray-400" />
-                                </button>
-                            </div>
+                        <div className="p-4 text-center">
+                            <div className="text-xl font-bold text-emerald-400">Active</div>
+                            <div className="text-xs text-zinc-500">Status</div>
                         </div>
+                    </div>
 
-                        {/* Transaction Signature */}
-                        <div className="bg-black/40 rounded-2xl p-5 mb-8">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <div className="text-sm text-gray-500 mb-1">Transaction Signature</div>
-                                    <code className="text-emerald-400 font-mono">
-                                        {txSignature.substring(0, 20)}...{txSignature.substring(txSignature.length - 8)}
-                                    </code>
-                                </div>
-                                <a
-                                    href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all"
-                                >
-                                    <ExternalLink className="w-5 h-5 text-gray-400" />
-                                </a>
-                            </div>
-                        </div>
-
-                        {/* Privacy Notice */}
-                        <div className="p-5 bg-violet-500/10 border border-violet-500/20 rounded-2xl mb-8">
-                            <div className="flex items-start gap-4">
-                                <div className="w-10 h-10 bg-violet-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-                                    <Shield className="w-5 h-5 text-violet-400" />
-                                </div>
-                                <div>
-                                    <div className="font-semibold text-violet-300 mb-1">Privacy Protected</div>
-                                    <div className="text-sm text-violet-400/70">
-                                        Only the merkle root is stored on-chain. Recipient addresses are never revealed publicly.
-                                        Share the campaign address with eligible recipients to claim.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
+                    {/* Campaign Address */}
+                    <div className="p-4 border-t border-zinc-800">
+                        <div className="text-xs text-zinc-500 mb-2">Campaign Address</div>
+                        <div className="flex items-center justify-between bg-zinc-950 rounded-lg p-3">
+                            <code className="text-violet-400 font-mono text-sm">
+                                {campaignAddress.substring(0, 8)}...{campaignAddress.substring(campaignAddress.length - 8)}
+                            </code>
                             <button
                                 onClick={() => {
-                                    setSuccess(false);
-                                    setStep(0);
-                                    setAirdropType(null);
-                                    setRecipients("");
-                                    setTokenAmount("");
-                                    setCampaignName("");
-                                    setVestingEnabled(false);
-                                    setVestingCliffDays("");
-                                    setVestingDurationDays("");
-                                    // Reset token state
-                                    setTokenType("spl");
-                                    setTokenMint("");
-                                    setTokenSymbol("");
-                                    setTokenDecimals(9);
+                                    navigator.clipboard.writeText(campaignAddress);
+                                    toast.success("Copied!");
                                 }}
-                                className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold py-4 rounded-xl transition-all"
+                                className="p-2 hover:bg-zinc-800 rounded-md transition-all"
                             >
-                                <Sparkles className="w-5 h-5" />
-                                Create Another
+                                <Copy className="w-4 h-4 text-zinc-400" />
                             </button>
-                            <a
-                                href={`https://explorer.solana.com/tx/${txSignature}?cluster=custom&customUrl=http://localhost:8899`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 text-zinc-900 font-semibold py-4 rounded-xl transition-all"
-                            >
-                                <ExternalLink className="w-5 h-5" />
-                                View on Explorer
-                            </a>
                         </div>
+                        <div className="text-xs text-zinc-600 mt-2">Share this address with eligible recipients to claim</div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="grid grid-cols-2 gap-3 p-4 border-t border-zinc-800">
+                        <button
+                            onClick={() => {
+                                setSuccess(false);
+                                setStep(0);
+                                setAirdropType(null);
+                                setRecipients(generateDefaultRecipients());
+                                setTokenAmount("");
+                                setCampaignName(generateCampaignName());
+                                setVestingEnabled(false);
+                                setVestingCliffDays("");
+                                setVestingDurationDays("");
+                                setTokenType("spl");
+                                setTokenMint("");
+                                setTokenSymbol("");
+                                setTokenDecimals(9);
+                            }}
+                            className="flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white font-medium py-3 rounded-lg transition-all text-sm"
+                        >
+                            <Sparkles className="w-4 h-4" />
+                            Create Another
+                        </button>
+                        <a
+                            href={`https://explorer.solana.com/tx/${txSignature}${network === "localnet" ? "?cluster=custom&customUrl=http://localhost:8899" : network === "devnet" ? "?cluster=devnet" : ""}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 bg-white hover:bg-zinc-200 text-zinc-900 font-medium py-3 rounded-lg transition-all text-sm"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                            Explorer
+                        </a>
                     </div>
                 </div>
             </div>
@@ -1168,81 +1149,154 @@ function CreateAirdrop({ balance }: { balance: number | null }) {
 
                             {/* SPL Token Configuration (shown when SPL is selected) */}
                             {tokenType === "spl" && (
-                                <div className="space-y-4 p-4 bg-zinc-900 border border-zinc-800 rounded-lg">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 text-zinc-300 font-medium">
-                                            <Sparkles className="w-4 h-4" />
-                                            Select Token from Wallet
-                                        </div>
-                                        {loadingTokens && (
-                                            <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" />
+                                <>
+                                    {/* Token Selection Trigger Button */}
+                                    <button
+                                        onClick={() => setShowTokenModal(true)}
+                                        className="w-full p-4 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 transition-all"
+                                    >
+                                        {tokenMint ? (
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center overflow-hidden border border-zinc-700">
+                                                        {walletTokens.find(t => t.mint === tokenMint)?.logo ? (
+                                                            <img src={walletTokens.find(t => t.mint === tokenMint)?.logo} alt={tokenSymbol} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <span className="text-sm font-bold text-zinc-400">
+                                                                {tokenSymbol.substring(0, 2).toUpperCase()}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className="font-semibold text-white">{tokenSymbol}</div>
+                                                        <div className="text-xs text-zinc-500">{tokenDecimals} decimals</div>
+                                                    </div>
+                                                </div>
+                                                <ChevronRight className="w-5 h-5 text-zinc-500" />
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center border border-dashed border-zinc-600">
+                                                        <Sparkles className="w-5 h-5 text-zinc-500" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <div className="font-medium text-zinc-300">Select Token</div>
+                                                        <div className="text-xs text-zinc-500">{walletTokens.length} tokens available</div>
+                                                    </div>
+                                                </div>
+                                                <ChevronRight className="w-5 h-5 text-zinc-500" />
+                                            </div>
                                         )}
-                                    </div>
+                                    </button>
 
-                                    {walletTokens.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {walletTokens.map((token) => (
-                                                <button
-                                                    key={token.mint}
-                                                    onClick={() => {
-                                                        setTokenMint(token.mint);
-                                                        setTokenSymbol(token.symbol);
-                                                        setTokenDecimals(token.decimals);
-                                                    }}
-                                                    className={`w-full flex items-center justify-between p-3 rounded-md border transition-all cursor-pointer ${tokenMint === token.mint
-                                                        ? "bg-zinc-800 border-zinc-600 ring-1 ring-zinc-600"
-                                                        : "bg-transparent border-zinc-800 hover:bg-zinc-800/50"
-                                                        }`}
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center overflow-hidden border border-zinc-700">
-                                                            {token.logo ? (
-                                                                <img src={token.logo} alt={token.symbol} className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <span className="text-xs font-bold text-zinc-400">
-                                                                    {token.symbol.substring(0, 2).toUpperCase()}
-                                                                </span>
-                                                            )}
+                                    {/* Token Selection Modal */}
+                                    {showTokenModal && (
+                                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowTokenModal(false)}>
+                                            <div
+                                                className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden shadow-2xl"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {/* Modal Header */}
+                                                <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+                                                    <h3 className="text-lg font-semibold text-white">Select a token</h3>
+                                                    <button
+                                                        onClick={() => setShowTokenModal(false)}
+                                                        className="p-1 hover:bg-zinc-800 rounded-md transition-all"
+                                                    >
+                                                        <X className="w-5 h-5 text-zinc-400" />
+                                                    </button>
+                                                </div>
+
+                                                {/* Search Box */}
+                                                <div className="p-4 border-b border-zinc-800">
+                                                    <div className="relative">
+                                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Search by name or symbol"
+                                                            value={tokenSearch}
+                                                            onChange={(e) => setTokenSearch(e.target.value)}
+                                                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-3 pl-10 pr-4 text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                                                            autoFocus
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Token List */}
+                                                <div className="overflow-y-auto max-h-[50vh]">
+                                                    {loadingTokens ? (
+                                                        <div className="py-12 text-center text-zinc-500">
+                                                            <Loader2 className="w-6 h-6 mx-auto mb-2 animate-spin" />
+                                                            Loading tokens...
                                                         </div>
-                                                        <div className="text-left">
-                                                            <div className="font-medium text-white text-sm">
-                                                                {token.name !== token.symbol ? token.name : token.symbol}
+                                                    ) : walletTokens.filter(token =>
+                                                        token.name.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+                                                        token.symbol.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+                                                        token.mint.toLowerCase().includes(tokenSearch.toLowerCase())
+                                                    ).length > 0 ? (
+                                                        <div className="p-2">
+                                                            {walletTokens
+                                                                .filter(token =>
+                                                                    token.name.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+                                                                    token.symbol.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+                                                                    token.mint.toLowerCase().includes(tokenSearch.toLowerCase())
+                                                                )
+                                                                .map((token) => (
+                                                                    <button
+                                                                        key={token.mint}
+                                                                        onClick={() => {
+                                                                            setTokenMint(token.mint);
+                                                                            setTokenSymbol(token.symbol);
+                                                                            setTokenDecimals(token.decimals);
+                                                                            setShowTokenModal(false);
+                                                                            setTokenSearch("");
+                                                                        }}
+                                                                        className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${tokenMint === token.mint
+                                                                            ? "bg-violet-500/10 border border-violet-500/30"
+                                                                            : "hover:bg-zinc-800"
+                                                                            }`}
+                                                                    >
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-10 h-10 bg-zinc-800 rounded-full flex items-center justify-center overflow-hidden border border-zinc-700">
+                                                                                {token.logo ? (
+                                                                                    <img src={token.logo} alt={token.symbol} className="w-full h-full object-cover" />
+                                                                                ) : (
+                                                                                    <span className="text-sm font-bold text-zinc-400">
+                                                                                        {token.symbol.substring(0, 2).toUpperCase()}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            <div className="text-left">
+                                                                                <div className="font-medium text-white">
+                                                                                    {token.name !== token.symbol ? token.name : token.symbol}
+                                                                                </div>
+                                                                                <div className="text-xs text-zinc-500">
+                                                                                    {token.symbol} • {token.mint.substring(0, 6)}...{token.mint.substring(token.mint.length - 4)}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <div className="font-semibold text-white">{token.uiBalance}</div>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="py-12 text-center">
+                                                            <div className="text-zinc-400 mb-2">
+                                                                {tokenSearch ? "No tokens found" : "No SPL tokens in wallet"}
                                                             </div>
                                                             <div className="text-xs text-zinc-500">
-                                                                {token.symbol} • {token.decimals} decimals
+                                                                {tokenSearch ? "Try a different search term" : "Connect a wallet with tokens"}
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <div className="font-semibold text-white text-sm">{token.uiBalance}</div>
-                                                        <div className="text-xs text-zinc-500">Available</div>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    ) : loadingTokens ? (
-                                        <div className="py-8 text-center text-zinc-500">
-                                            <Loader2 className="w-6 h-6 mx-auto mb-2 animate-spin" />
-                                            Loading tokens...
-                                        </div>
-                                    ) : (
-                                        <div className="py-8 text-center">
-                                            <div className="text-zinc-400 mb-2">No SPL tokens found in wallet</div>
-                                            <div className="text-xs text-zinc-500">
-                                                Make sure you have SPL tokens in your connected wallet
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
-
-                                    {tokenMint && (
-                                        <div className="p-3 bg-zinc-800/50 border border-zinc-700/50 rounded-md">
-                                            <div className="flex items-center gap-2 text-zinc-300 text-sm">
-                                                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                                <span>Selected: <strong>{tokenSymbol}</strong> ({tokenDecimals} decimals)</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
+                                </>
                             )}
 
 
@@ -1533,38 +1587,36 @@ function ClaimAirdrop() {
             const claimAmount = new BN(proofData.amount);
 
             if (campaign.token_mint) {
-                console.log("🔷 Using ZK-verified Token Claim (claimZkToken)");
+                console.log("🔷 Using Token Claim (claimToken)");
                 const mintPubkey = new PublicKey(campaign.token_mint);
-                // Derive Token Vault ATA
-                // Note: campaign.vault_address in API might be the SOL vault PDA, but for tokens we need the ATA
-                // We derive it deterministically from Mint + CampaignPDA
+                // Derive Token Vault ATA (owned by campaign PDA)
                 const campaignVaultAta = await getAssociatedTokenAddress(mintPubkey, campaignPDA, true);
 
                 // Derive User ATA
                 const claimerTokenAccount = await getAssociatedTokenAddress(mintPubkey, publicKey);
 
-                // Need separate instruction accounts for Token Claim
+                // Derive claim_record PDA
+                const [claimRecordPDA] = PublicKey.findProgramAddressSync(
+                    [Buffer.from("claim"), campaignPDA.toBuffer(), publicKey.toBuffer()],
+                    program.programId
+                );
+
+                // Use claimToken (legacy) - ZK token claim not yet implemented in contract
                 tx = await program.methods
-                    .claimZkToken(
-                        Array.from(groth16Proof) as any,     // [u8; 256]
-                        Array.from(publicInputs) as any,     // [u8; 96]
-                        Array.from(nullifier) as any,        // [u8; 32]
-                        claimAmount
-                    )
+                    .claimToken(claimAmount)
                     .accounts({
                         claimer: publicKey,
                         campaign: campaignPDA,
                         tokenVault: campaignVaultAta,
                         claimerTokenAccount: claimerTokenAccount,
                         tokenMint: mintPubkey,
-                        zkVerifier: ZK_VERIFIER_PROGRAM_ID,
-                        nullifierRecord: nullifierRecordPDA,
+                        claimRecord: claimRecordPDA,
                         tokenProgram: TOKEN_PROGRAM_ID,
                         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                         systemProgram: SystemProgram.programId,
                     })
                     .preInstructions([
-                        ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 })
+                        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
                     ])
                     .rpc();
             } else {

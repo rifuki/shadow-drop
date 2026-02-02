@@ -84,6 +84,7 @@ export interface EligibleCampaign {
     total_recipients: number;
     vault_address?: string;
     created_at: string;
+    token_mint?: string;
     token_symbol?: string;
     token_decimals?: number;
 }

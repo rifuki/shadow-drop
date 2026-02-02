@@ -1,7 +1,8 @@
 [package]
 name = "shadow-drop-api"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
+default-run = "shadow-drop-api"
 
 [dependencies]
 axum = "0.8.8"

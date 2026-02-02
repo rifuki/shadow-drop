@@ -95,6 +95,7 @@ pub struct EligibleCampaign {
     pub total_recipients: usize,
     pub vault_address: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub token_mint: Option<String>,
     pub token_symbol: Option<String>,
     pub token_decimals: Option<u8>,
 }
@@ -284,7 +285,7 @@ impl CampaignStore {
         let rows = sqlx::query!(
             r#"
             SELECT c.address, c.name, c.total_amount, c.vault_address, c.created_at, 
-                   c.token_symbol, c.token_decimals,
+                   c.token_mint, c.token_symbol, c.token_decimals,
                    r.amount,
                    (SELECT COUNT(*) FROM recipients WHERE campaign_address = c.address) as total_recipients
             FROM campaigns c
@@ -305,6 +306,7 @@ impl CampaignStore {
             total_recipients: row.total_recipients.unwrap_or(0) as usize,
             vault_address: row.vault_address,
             created_at: row.created_at,
+            token_mint: row.token_mint,
             token_symbol: row.token_symbol,
             token_decimals: row.token_decimals.map(|d| d as u8),
         }).collect()
