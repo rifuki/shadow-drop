@@ -175,6 +175,7 @@ impl SunspotProver {
 }
 
 /// Convert hex string to bytes
+#[allow(dead_code)]
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, ProverError> {
     let clean_hex = hex.strip_prefix("0x").unwrap_or(hex);
     hex::decode(clean_hex).map_err(|e| ProverError::InvalidInput(format!("Invalid hex: {}", e)))

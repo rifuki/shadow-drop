@@ -19,7 +19,7 @@ pub type Hash = [u8; 32];
 pub struct MerkleTree {
     /// All nodes in the tree (bottom-up, left-to-right per level)
     nodes: Vec<Hash>,
-    /// Number of leaves
+    #[allow(dead_code)]
     leaf_count: usize,
     /// Leaf index by recipient wallet
     leaf_indices: HashMap<String, usize>,
